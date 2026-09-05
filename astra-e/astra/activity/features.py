@@ -7,17 +7,19 @@ first-order distance derivatives, and tracking confidence.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Any, Sequence
+import time
 import numpy as np
-from astra.contracts.perception import SceneObservation
+from astra.contracts.perception import SceneObservation, scene_observation_to_detections
 from astra.interaction.spatial import bbox_centroid, euclidean_distance
 
 
 class KinematicFeatureExtractor:
     """
-    Extracts 26-dimensional observable spatial-temporal feature vectors from SceneObservations.
-    Satisfies strict physical causality and zero-leakage constraints:
-    Uses only observable coordinates, velocities, distances, and confidence flags.
+    Extracts 26-dimensional observable spatial-temporal feature vectors from detector predictions.
+    Detector-Agnostic: Consumes standardized `detections` dictionary format without dependency
+    on whether predictions originate from YOLO, MediaPipe, synthetic simulation, or edge cameras.
+    Satisfies strict physical causality and zero ground-truth leakage constraints.
     """
 
     NUM_FEATURES = 26
@@ -65,152 +67,138 @@ class KinematicFeatureExtractor:
 
     def extract(self, obs: SceneObservation | dict[str, Any], event_time: float | None = None) -> np.ndarray:
         """
-        Extract normalized 26-D feature vector from a single SceneObservation or detector dictionary.
-        Identical mathematical implementation used across both synthetic simulation and real-video processing.
+        Extract normalized 26-D feature vector from the standardized agnostic detector contract.
+
+        Expected detector dictionary contract:
+            detections = {
+                "hand": {"pos": [x, y], "conf": float},
+                "red": {"pos": [x, y], "conf": float},
+                "yellow": {"pos": [x, y], "conf": float},
+                "container": {"pos": [x, y]},
+                "target_a": {"pos": [x, y]},
+                "target_b": {"pos": [x, y]},
+            }
         """
-        if isinstance(obs, dict):
-            t = event_time if event_time is not None else float(obs.get("event_time", time.time()))
+        if isinstance(obs, SceneObservation):
+            detections = scene_observation_to_detections(obs)
+        elif isinstance(obs, dict):
+            detections = obs
         else:
-            t = obs.event_time
+            raise TypeError(f"Expected SceneObservation or detections dict, got {type(obs).__name__}")
+
+        t = event_time if event_time is not None else float(detections.get("event_time", time.time()))
 
         dt = 1.0 / 30.0
         if self._prev_time is not None and t > self._prev_time:
             dt = max(0.001, t - self._prev_time)
         self._prev_time = t
 
-        # 1. Parse Hand Entity
+        # 1. Parse Hand Entity (frozen contract: detections["hand"] -> {"pos": [x, y], "conf": ...})
+        hand_data = detections.get("hand")
         hand_conf = 0.0
         hand_pos = list(self._last_hand_pos)
         hand_vx, hand_vy = 0.0, 0.0
 
-        if isinstance(obs, dict):
-            # Dict input from YOLO + MediaPipe in cloud / Colab pipeline
-            if "hand" in obs and obs["hand"]:
-                h = obs["hand"]
-                if isinstance(h, dict):
-                    pos = h.get("pos") or h.get("position") or [0.0, 0.0]
-                    hand_pos = [float(pos[0]), float(pos[1])]
-                    hand_conf = float(h.get("conf", h.get("confidence", 1.0)))
-                elif isinstance(h, (list, tuple)):
-                    hand_pos = [float(h[0]), float(h[1])]
-                    hand_conf = 1.0
-                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
-                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
-                self._last_hand_pos = list(hand_pos)
-            elif "hands" in obs and obs["hands"]:
-                h = obs["hands"][0]
-                if isinstance(h, dict):
-                    pos = h.get("pos") or h.get("position") or [0.0, 0.0]
-                    hand_pos = [float(pos[0]), float(pos[1])]
-                    hand_conf = float(h.get("conf", h.get("confidence", 1.0)))
-                else:
-                    hand_pos = [float(h.position[0]), float(h.position[1])]
-                    hand_conf = float(h.confidence)
-                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
-                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
-                self._last_hand_pos = list(hand_pos)
-        else:
-            # SceneObservation contract input in local edge runtime
-            if obs.hands:
-                h = obs.hands[0]
-                hand_pos = [float(h.position[0]), float(h.position[1])]
-                hand_conf = float(h.confidence)
+        if hand_data:
+            pos = hand_data.get("pos") or hand_data.get("position") if isinstance(hand_data, dict) else hand_data
+            if pos:
+                hand_pos = [float(pos[0]), float(pos[1])]
+                hand_conf = float(hand_data.get("conf", hand_data.get("confidence", 1.0))) if isinstance(hand_data, dict) else 1.0
                 hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
                 hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
                 self._last_hand_pos = list(hand_pos)
 
-        # 2. Parse Objects
-        red_conf, yellow_conf = 0.0, 0.0
+        # 2. Parse Red Component (frozen contract: detections["red"] -> {"pos": [x, y], "conf": ...})
+        red_data = detections.get("red")
+        red_conf = 0.0
         red_pos = list(self._last_red_pos)
-        yellow_pos = list(self._last_yellow_pos)
         red_vx, red_vy = 0.0, 0.0
+
+        if red_data:
+            pos = red_data.get("pos") or red_data.get("position") if isinstance(red_data, dict) else red_data
+            if pos:
+                red_pos = [float(pos[0]), float(pos[1])]
+                red_conf = float(red_data.get("conf", red_data.get("confidence", 1.0))) if isinstance(red_data, dict) else 1.0
+                red_vx = (red_pos[0] - self._last_red_pos[0]) / dt
+                red_vy = (red_pos[1] - self._last_red_pos[1]) / dt
+                self._last_red_pos = list(red_pos)
+
+        # 3. Parse Yellow Component (frozen contract: detections["yellow"] -> {"pos": [x, y], "conf": ...})
+        yellow_data = detections.get("yellow")
+        yellow_conf = 0.0
+        yellow_pos = list(self._last_yellow_pos)
         yellow_vx, yellow_vy = 0.0, 0.0
 
+        if yellow_data:
+            pos = yellow_data.get("pos") or yellow_data.get("position") if isinstance(yellow_data, dict) else yellow_data
+            if pos:
+                yellow_pos = [float(pos[0]), float(pos[1])]
+                yellow_conf = float(yellow_data.get("conf", yellow_data.get("confidence", 1.0))) if isinstance(yellow_data, dict) else 1.0
+                yellow_vx = (yellow_pos[0] - self._last_yellow_pos[0]) / dt
+                yellow_vy = (yellow_pos[1] - self._last_yellow_pos[1]) / dt
+                self._last_yellow_pos = list(yellow_pos)
+
+        # 4. Parse Static/Receptacle Targets (frozen contract: detections["target_a"], detections["target_b"], detections["container"])
         target_a_pos = [self.width * 0.72, self.height * 0.31]
         target_b_pos = [self.width * 0.72, self.height * 0.65]
         container_pos = [self.width * 0.28, self.height * 0.58]
 
-        if isinstance(obs, dict):
-            # Parse direct entity keys if present
-            if "red" in obs and obs["red"]:
-                r = obs["red"]
-                c = r.get("pos") if isinstance(r, dict) else r
-                red_pos = [float(c[0]), float(c[1])]
-                red_conf = float(r.get("conf", 1.0)) if isinstance(r, dict) else 1.0
-                red_vx = (red_pos[0] - self._last_red_pos[0]) / dt
-                red_vy = (red_pos[1] - self._last_red_pos[1]) / dt
-                self._last_red_pos = list(red_pos)
-            if "yellow" in obs and obs["yellow"]:
-                y = obs["yellow"]
-                c = y.get("pos") if isinstance(y, dict) else y
-                yellow_pos = [float(c[0]), float(c[1])]
-                yellow_conf = float(y.get("conf", 1.0)) if isinstance(y, dict) else 1.0
-                yellow_vx = (yellow_pos[0] - self._last_yellow_pos[0]) / dt
-                yellow_vy = (yellow_pos[1] - self._last_yellow_pos[1]) / dt
-                self._last_yellow_pos = list(yellow_pos)
-            if "target_a" in obs and obs["target_a"]:
-                t_a = obs["target_a"]
-                c = t_a.get("pos") if isinstance(t_a, dict) else t_a
-                target_a_pos = [float(c[0]), float(c[1])]
-            if "target_b" in obs and obs["target_b"]:
-                t_b = obs["target_b"]
-                c = t_b.get("pos") if isinstance(t_b, dict) else t_b
-                target_b_pos = [float(c[0]), float(c[1])]
-            if "container" in obs and obs["container"]:
-                cnt = obs["container"]
-                c = cnt.get("pos") if isinstance(cnt, dict) else cnt
-                container_pos = [float(c[0]), float(c[1])]
+        tgt_a_data = detections.get("target_a")
+        if tgt_a_data:
+            pos = tgt_a_data.get("pos") or tgt_a_data.get("position") if isinstance(tgt_a_data, dict) else tgt_a_data
+            if pos:
+                target_a_pos = [float(pos[0]), float(pos[1])]
 
-            # Also parse list of objects if formatted as obs["objects"]
-            if "objects" in obs and isinstance(obs["objects"], list):
-                for obj in obs["objects"]:
-                    obj_type = obj.get("type", "").upper() if isinstance(obj, dict) else getattr(obj, "type", "").upper()
-                    raw_c = obj.get("pos") if isinstance(obj, dict) else None
-                    if raw_c is None:
-                        bbox = obj.get("bbox") if isinstance(obj, dict) else getattr(obj, "bbox", None)
-                        c = bbox_centroid(bbox) if bbox else [0.0, 0.0]
-                    else:
-                        c = raw_c
-                    conf = float(obj.get("confidence", 1.0)) if isinstance(obj, dict) else float(getattr(obj, "confidence", 1.0))
-                    if "RED" in obj_type:
+        tgt_b_data = detections.get("target_b")
+        if tgt_b_data:
+            pos = tgt_b_data.get("pos") or tgt_b_data.get("position") if isinstance(tgt_b_data, dict) else tgt_b_data
+            if pos:
+                target_b_pos = [float(pos[0]), float(pos[1])]
+
+        cnt_data = detections.get("container")
+        if cnt_data:
+            pos = cnt_data.get("pos") or cnt_data.get("position") if isinstance(cnt_data, dict) else cnt_data
+            if pos:
+                container_pos = [float(pos[0]), float(pos[1])]
+
+        # Backward compatibility for raw dicts containing objects/hands lists
+        if "hands" in detections and not hand_data and detections["hands"]:
+            h = detections["hands"][0]
+            pos = h.get("pos") or h.get("position") if isinstance(h, dict) else getattr(h, "position", None)
+            if pos:
+                hand_pos = [float(pos[0]), float(pos[1])]
+                hand_conf = float(h.get("conf", h.get("confidence", 1.0))) if isinstance(h, dict) else float(getattr(h, "confidence", 1.0))
+                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
+                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
+                self._last_hand_pos = list(hand_pos)
+
+        if "objects" in detections and isinstance(detections["objects"], list):
+            for obj in detections["objects"]:
+                obj_type = obj.get("type", "").upper() if isinstance(obj, dict) else getattr(obj, "type", "").upper()
+                pos = obj.get("pos") if isinstance(obj, dict) else None
+                if pos is None:
+                    bbox = obj.get("bbox") if isinstance(obj, dict) else getattr(obj, "bbox", None)
+                    pos = bbox_centroid(bbox) if bbox else None
+                conf = float(obj.get("confidence", 1.0)) if isinstance(obj, dict) else float(getattr(obj, "confidence", 1.0))
+                if pos:
+                    if "RED" in obj_type and not red_data:
                         red_conf = conf
-                        red_vx = (c[0] - self._last_red_pos[0]) / dt
-                        red_vy = (c[1] - self._last_red_pos[1]) / dt
-                        red_pos = list(c)
+                        red_vx = (pos[0] - self._last_red_pos[0]) / dt
+                        red_vy = (pos[1] - self._last_red_pos[1]) / dt
+                        red_pos = [float(pos[0]), float(pos[1])]
                         self._last_red_pos = list(red_pos)
-                    elif "YELLOW" in obj_type:
+                    elif "YELLOW" in obj_type and not yellow_data:
                         yellow_conf = conf
-                        yellow_vx = (c[0] - self._last_yellow_pos[0]) / dt
-                        yellow_vy = (c[1] - self._last_yellow_pos[1]) / dt
-                        yellow_pos = list(c)
+                        yellow_vx = (pos[0] - self._last_yellow_pos[0]) / dt
+                        yellow_vy = (pos[1] - self._last_yellow_pos[1]) / dt
+                        yellow_pos = [float(pos[0]), float(pos[1])]
                         self._last_yellow_pos = list(yellow_pos)
-                    elif "TARGET_A" in obj_type:
-                        target_a_pos = list(c)
-                    elif "TARGET_B" in obj_type:
-                        target_b_pos = list(c)
-                    elif "CONTAINER" in obj_type:
-                        container_pos = list(c)
-        else:
-            for obj in obs.objects:
-                c = bbox_centroid(obj.bbox)
-                if "RED" in obj.type.upper():
-                    red_conf = float(obj.confidence)
-                    red_vx = (c[0] - self._last_red_pos[0]) / dt
-                    red_vy = (c[1] - self._last_red_pos[1]) / dt
-                    red_pos = list(c)
-                    self._last_red_pos = list(red_pos)
-                elif "YELLOW" in obj.type.upper():
-                    yellow_conf = float(obj.confidence)
-                    yellow_vx = (c[0] - self._last_yellow_pos[0]) / dt
-                    yellow_vy = (c[1] - self._last_yellow_pos[1]) / dt
-                    yellow_pos = list(c)
-                    self._last_yellow_pos = list(yellow_pos)
-                elif "TARGET_A" in obj.type.upper():
-                    target_a_pos = list(c)
-                elif "TARGET_B" in obj.type.upper():
-                    target_b_pos = list(c)
-                elif "CONTAINER" in obj.type.upper():
-                    container_pos = list(c)
+                    elif "TARGET_A" in obj_type and not tgt_a_data:
+                        target_a_pos = [float(pos[0]), float(pos[1])]
+                    elif "TARGET_B" in obj_type and not tgt_b_data:
+                        target_b_pos = [float(pos[0]), float(pos[1])]
+                    elif "CONTAINER" in obj_type and not cnt_data:
+                        container_pos = [float(pos[0]), float(pos[1])]
 
         # 3. Calculate Normalized Euclidean Distances
         d_h_r = euclidean_distance(hand_pos, red_pos) / self.diag

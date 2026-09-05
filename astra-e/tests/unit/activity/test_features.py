@@ -92,7 +92,7 @@ def test_reset_clears_all_state_and_cached_positions():
 
 
 def test_extract_from_detector_dict_parity():
-    """Verify single production KinematicFeatureExtractor handles YOLO/MediaPipe dicts identically."""
+    """Verify single production KinematicFeatureExtractor handles frozen detector dicts."""
     extractor = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
 
     detections = {
@@ -112,3 +112,100 @@ def test_extract_from_detector_dict_parity():
     assert feat[23] == 0.95  # conf_hand
     assert feat[24] == 0.98  # conf_red
     assert feat[25] == 0.97  # conf_yellow
+
+
+def test_frozen_detector_contract_exact_spec():
+    """Verify the exact user-specified detector dictionary contract."""
+    extractor = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+
+    # Frame 1
+    det_f1 = {
+        "hand": {"pos": [300.0, 200.0], "conf": 0.95},
+        "red": {"pos": [150.0, 150.0], "conf": 0.92},
+        "yellow": {"pos": [250.0, 250.0], "conf": 0.89},
+        "container": {"pos": [180.0, 280.0]},
+        "target_a": {"pos": [460.0, 150.0]},
+        "target_b": {"pos": [460.0, 310.0]},
+    }
+    f1 = extractor.extract(det_f1, event_time=0.0)
+    assert f1.shape == (26,)
+    assert f1[23] == 0.95
+    assert f1[24] == 0.92
+    assert f1[25] == 0.89
+
+    # Frame 2 (dt = 0.1s): Hand moves by dx = +32px, dy = +24px
+    det_f2 = {
+        "hand": {"pos": [332.0, 224.0], "conf": 0.96},
+        "red": {"pos": [150.0, 150.0], "conf": 0.93},
+        "yellow": {"pos": [250.0, 250.0], "conf": 0.90},
+        "container": {"pos": [180.0, 280.0]},
+        "target_a": {"pos": [460.0, 150.0]},
+        "target_b": {"pos": [460.0, 310.0]},
+    }
+    f2 = extractor.extract(det_f2, event_time=0.1)
+    # Velocity vx = (332 - 300) / 0.1 = 320 px/sec -> normalized vx = 320 / 640 = 0.5 1/sec
+    assert f2[2] == pytest.approx(0.5, abs=1e-4)
+    # Velocity vy = (224 - 200) / 0.1 = 240 px/sec -> normalized vy = 240 / 480 = 0.5 1/sec
+    assert f2[3] == pytest.approx(0.5, abs=1e-4)
+
+
+def test_frozen_detector_contract_missing_entities_zero_velocity_and_confidence():
+    """Verify omitted entities in detector dict zero out velocity and confidence safely."""
+    extractor = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+
+    # Frame 1: Hand and Red detected
+    det1 = {
+        "hand": {"pos": [300.0, 200.0], "conf": 0.95},
+        "red": {"pos": [150.0, 150.0], "conf": 0.92},
+    }
+    _ = extractor.extract(det1, event_time=0.0)
+
+    # Frame 2: Hand occluded / lost (omitted from detections)
+    det2 = {
+        "red": {"pos": [150.0, 150.0], "conf": 0.92},
+    }
+    f2 = extractor.extract(det2, event_time=0.033)
+    assert not np.isnan(f2).any()
+    assert f2[23] == 0.0  # hand confidence zeroed
+    assert f2[2] == 0.0   # hand vx zeroed
+    assert f2[3] == 0.0   # hand vy zeroed
+    # Hand position retained from frame 1
+    assert f2[0] == pytest.approx(300.0 / 640.0)
+    assert f2[1] == pytest.approx(200.0 / 480.0)
+
+
+def test_scene_observation_parity_with_detector_dict():
+    """Verify SceneObservation produces identical features as direct detector dict."""
+    extractor1 = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+    extractor2 = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+
+    obs = SceneObservation(
+        source="test",
+        correlation_id="RUN-PARITY",
+        camera_id="CAM-1",
+        event_time=1.0,
+        hands=[HandLandmark(id="h1", owner_id="p1", position=[320.0, 240.0], confidence=0.95)],
+        objects=[
+            DetectedObject(id="o1", type="RED_COMPONENT", bbox=[100.0, 100.0, 140.0, 140.0], confidence=0.92),
+            DetectedObject(id="o2", type="YELLOW_COMPONENT", bbox=[200.0, 200.0, 240.0, 240.0], confidence=0.89),
+            DetectedObject(id="o3", type="CONTAINER", bbox=[160.0, 260.0, 200.0, 300.0], confidence=0.99),
+            DetectedObject(id="o4", type="TARGET_A", bbox=[440.0, 130.0, 480.0, 170.0], confidence=0.99),
+            DetectedObject(id="o5", type="TARGET_B", bbox=[440.0, 290.0, 480.0, 330.0], confidence=0.99),
+        ],
+    )
+
+    detections = {
+        "event_time": 1.0,
+        "hand": {"pos": [320.0, 240.0], "conf": 0.95},
+        "red": {"pos": [120.0, 120.0], "conf": 0.92},
+        "yellow": {"pos": [220.0, 220.0], "conf": 0.89},
+        "container": {"pos": [180.0, 280.0], "conf": 0.99},
+        "target_a": {"pos": [460.0, 150.0], "conf": 0.99},
+        "target_b": {"pos": [460.0, 310.0], "conf": 0.99},
+    }
+
+    f_obs = extractor1.extract(obs)
+    f_dict = extractor2.extract(detections)
+
+    assert np.allclose(f_obs, f_dict, atol=1e-6)
+

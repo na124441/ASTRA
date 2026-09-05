@@ -78,38 +78,24 @@ class VideoFeatureExtractorWorker:
             raw_detections = self.color_detector.detect(frame)
             active_tracks = self.tracker.update(raw_detections, timestamp=frame_time)
 
-            hands: list[HandLandmark] = []
-            objects: list[DetectedObject] = []
-
+            detections: dict[str, Any] = {"event_time": frame_time}
             for trk in active_tracks:
-                if trk.class_name in ("HAND", "HUMAN"):
-                    hands.append(
-                        HandLandmark(
-                            id=trk.track_id,
-                            owner_id="astronaut-01",
-                            position=trk.centroid,
-                            confidence=trk.confidence,
-                        )
-                    )
-                else:
-                    objects.append(
-                        DetectedObject(
-                            id=trk.track_id,
-                            type=trk.class_name,
-                            bbox=trk.bbox,
-                            confidence=trk.confidence,
-                        )
-                    )
+                name = trk.class_name.upper()
+                if name in ("HAND", "HUMAN"):
+                    detections["hand"] = {"pos": list(trk.centroid), "conf": float(trk.confidence)}
+                elif "RED" in name:
+                    detections["red"] = {"pos": list(trk.centroid), "conf": float(trk.confidence)}
+                elif "YELLOW" in name:
+                    detections["yellow"] = {"pos": list(trk.centroid), "conf": float(trk.confidence)}
+                elif "TARGET_A" in name:
+                    detections["target_a"] = {"pos": list(trk.centroid)}
+                elif "TARGET_B" in name:
+                    detections["target_b"] = {"pos": list(trk.centroid)}
+                elif "CONTAINER" in name:
+                    detections["container"] = {"pos": list(trk.centroid)}
 
-            obs = SceneObservation(
-                camera_id="CLOUD-CAM",
-                event_time=frame_time,
-                hands=hands,
-                objects=objects,
-            )
-
-            # 2. Extract 26-D Kinematic Feature Vector
-            feat_vec = self.extractor.extract(obs)
+            # 2. Extract 26-D Kinematic Feature Vector via frozen detector contract
+            feat_vec = self.extractor.extract(detections)
 
             features_list.append(feat_vec)
             timestamps_list.append(frame_time)

@@ -54,3 +54,46 @@ class SceneObservation(BaseMessage):
     hands: list[HandLandmark] = Field(default_factory=list)
     poses: list[dict[str, Any]] = Field(default_factory=list)
     scene_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EntityDetection(BaseModel):
+    """
+    Detector-agnostic entity localization and tracking confidence.
+    Standardized payload format consumed by KinematicFeatureExtractor regardless
+    of whether detections originate from YOLO, MediaPipe, synthetic simulation, or ArUco.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    pos: list[float] = Field(description="[x, y] coordinates in pixel space")
+    conf: float = Field(default=1.0, ge=0.0, le=1.0, description="Detection confidence")
+
+
+def scene_observation_to_detections(obs: SceneObservation) -> dict[str, Any]:
+    """
+    Converts a rich edge SceneObservation into the agnostic detector contract dictionary.
+    Guarantees that the production feature extractor only ever consumes the canonical detector dict.
+    """
+    detections: dict[str, Any] = {
+        "event_time": obs.event_time,
+    }
+    if obs.hands:
+        h = obs.hands[0]
+        detections["hand"] = {
+            "pos": [float(h.position[0]), float(h.position[1])],
+            "conf": float(h.confidence),
+        }
+    for obj in obs.objects:
+        c = [(obj.bbox[0] + obj.bbox[2]) / 2.0, (obj.bbox[1] + obj.bbox[3]) / 2.0]
+        t = obj.type.upper()
+        if "RED" in t:
+            detections["red"] = {"pos": [float(c[0]), float(c[1])], "conf": float(obj.confidence)}
+        elif "YELLOW" in t:
+            detections["yellow"] = {"pos": [float(c[0]), float(c[1])], "conf": float(obj.confidence)}
+        elif "TARGET_A" in t:
+            detections["target_a"] = {"pos": [float(c[0]), float(c[1])], "conf": float(obj.confidence)}
+        elif "TARGET_B" in t:
+            detections["target_b"] = {"pos": [float(c[0]), float(c[1])], "conf": float(obj.confidence)}
+        elif "CONTAINER" in t:
+            detections["container"] = {"pos": [float(c[0]), float(c[1])], "conf": float(obj.confidence)}
+    return detections
+
