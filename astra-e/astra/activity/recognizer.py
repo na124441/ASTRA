@@ -58,6 +58,18 @@ class ActivityRecognizer:
         self._window_buffer.clear()
         self._timestamps_buffer.clear()
 
+    def process_feature_vector(
+        self,
+        features: np.ndarray,
+        timestamp: float | None = None,
+        correlation_id: str = "RUN-DEFAULT",
+    ) -> ActionObservation | None:
+        """
+        Process single-frame feature vector (convenience wrapper for push_frame_features).
+        """
+        ts = timestamp if timestamp is not None else time.time()
+        return self.push_frame_features(features=features, timestamp=ts, correlation_id=correlation_id)
+
     def push_frame_features(
         self,
         features: np.ndarray,

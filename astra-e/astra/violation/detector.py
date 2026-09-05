@@ -23,10 +23,12 @@ class ViolationDetector:
         self.cooldown = suppression_cooldown_seconds
         # Maps violation_signature -> last_alert_time
         self._suppressed_alerts: dict[str, float] = {}
+        self.history: list[ViolationEvent] = []
 
     def reset(self) -> None:
         """Clear alert suppression states when a procedure transitions legitimately."""
         self._suppressed_alerts.clear()
+        self.history.clear()
 
     def evaluate(
         self,
@@ -184,7 +186,7 @@ class ViolationDetector:
     ) -> ViolationEvent:
         """Helper to build ViolationEvent with classified severity."""
         severity = ViolationClassifier.classify_severity(violation_type)
-        return ViolationEvent(
+        event = ViolationEvent(
             message_id=f"viol-{default_uuid()[:8]}",
             timestamp=time.time(),
             source="violation-engine",
@@ -196,6 +198,8 @@ class ViolationDetector:
             message=message,
             event_time=action.event_time,
         )
+        self.history.append(event)
+        return event
 
     def should_suppress_alert(self, violation: ViolationEvent) -> bool:
         """

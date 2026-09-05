@@ -69,12 +69,14 @@ class MockCamera(Camera):
         height: int = 480,
         fps: float = 30.0,
         total_frames: int = 300,
+        loop: bool = True,
     ) -> None:
         super().__init__(camera_id=camera_id)
         self._width = width
         self._height = height
         self._fps = fps
         self._total_frames = total_frames
+        self.loop = loop
         self._frame_count = 0
         self._start_time = 0.0
 
@@ -107,8 +109,14 @@ class MockCamera(Camera):
         self._is_running = False
 
     def read(self) -> tuple[bool, np.ndarray | None, float]:
-        if not self._is_running or self._frame_count >= self._total_frames:
+        if not self._is_running:
             return False, None, time.time()
+
+        if self._frame_count >= self._total_frames:
+            if self.loop:
+                self._frame_count = 0
+            else:
+                return False, None, time.time()
 
         t = self._frame_count
         capture_time = time.time()

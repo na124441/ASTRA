@@ -58,6 +58,16 @@ class ProcedureRuntimeState(BaseModel):
     last_action: str | None = Field(default=None, description="Summary of last processed action")
     violations_count: int = Field(default=0, description="Total violations encountered so far")
 
+    @property
+    def current_step(self) -> str | None:
+        """Alias for current_step_id for backward compatibility."""
+        return self.current_step_id
+
+    @property
+    def history(self) -> list[str]:
+        """Alias for completed_steps for backward compatibility."""
+        return self.completed_steps
+
 
 class ProcedureDecision(BaseMessage):
     """

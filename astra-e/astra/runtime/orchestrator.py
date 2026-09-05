@@ -246,16 +246,18 @@ class EdgeRuntimeOrchestrator:
             feat_vec = self.feature_extractor.extract(scene_obs)
 
             # 5. Temporal ML Action Recognition (Causal LSTM)
-            obs = self.recognizer.process_feature_vector(feat_vec)
+            obs = self.recognizer.push_frame_features(
+                features=feat_vec,
+                timestamp=video_frame.event_time,
+                correlation_id=self.run_id or "RUN-DEFAULT",
+            )
 
             # 6. Temporal Confirmation Layer (EMA, Persistence, Abstention)
             confirmed: ConfirmedAction | None = None
             if obs:
-                obs.correlation_id = self.run_id
                 confirmed = self.confirmation_engine.process_observation(obs)
 
             if confirmed:
-                confirmed.correlation_id = self.run_id
                 self._latest_confirmed_action = confirmed
                 self.event_bus.publish(EventTopic.ACTION_CONFIRMED, confirmed)
 
@@ -324,7 +326,7 @@ class EdgeRuntimeOrchestrator:
                 engine_state = None
 
         next_steps = engine_state.next_expected if engine_state else []
-        current_step_id = engine_state.current_step if engine_state else None
+        current_step_id = engine_state.current_step_id if engine_state else None
 
         # Resolve next step description
         next_step_desc = None
@@ -337,23 +339,37 @@ class EdgeRuntimeOrchestrator:
         detections: list[dict[str, Any]] = []
         if self._latest_scene:
             for d in self._latest_scene.objects:
+                raw_bbox = d.bbox
+                if hasattr(raw_bbox, "x_min"):
+                    bbox_list = [raw_bbox.x_min, raw_bbox.y_min, raw_bbox.x_max, raw_bbox.y_max]
+                elif isinstance(raw_bbox, (list, tuple)):
+                    bbox_list = list(raw_bbox)
+                else:
+                    bbox_list = [0.0, 0.0, 0.0, 0.0]
                 detections.append({
                     "id": d.id,
-                    "label": d.label,
-                    "bbox": [d.bbox.x_min, d.bbox.y_min, d.bbox.x_max, d.bbox.y_max],
+                    "label": getattr(d, "type", getattr(d, "label", "OBJECT")),
+                    "bbox": bbox_list,
                     "confidence": d.confidence,
                 })
             for h in self._latest_scene.humans:
+                raw_bbox = h.bbox
+                if hasattr(raw_bbox, "x_min"):
+                    bbox_list = [raw_bbox.x_min, raw_bbox.y_min, raw_bbox.x_max, raw_bbox.y_max]
+                elif isinstance(raw_bbox, (list, tuple)):
+                    bbox_list = list(raw_bbox)
+                else:
+                    bbox_list = [0.0, 0.0, 0.0, 0.0]
                 detections.append({
                     "id": h.id,
                     "label": "ASTRONAUT",
-                    "bbox": [h.bbox.x_min, h.bbox.y_min, h.bbox.x_max, h.bbox.y_max],
+                    "bbox": bbox_list,
                     "confidence": h.confidence,
                 })
 
         # Calculate progress
         total_steps = len(self.procedure.steps) if self.procedure else 1
-        history_steps = len(engine_state.history) if engine_state else 0
+        history_steps = len(engine_state.completed_steps) if engine_state else 0
         progress_pct = min(100.0, round((history_steps / max(1, total_steps)) * 100.0, 1))
 
         # Recent assistance
@@ -371,6 +387,7 @@ class EdgeRuntimeOrchestrator:
                 "id": self.procedure.id if self.procedure else None,
                 "name": self.procedure.name if self.procedure else None,
                 "current_step": current_step_id,
+                "current_step_id": current_step_id,
                 "next_expected": next_steps,
                 "next_step_description": next_step_desc,
                 "progress_percent": progress_pct,
@@ -384,7 +401,7 @@ class EdgeRuntimeOrchestrator:
             },
             "detections": detections,
             "latest_guidance": latest_assist,
-            "violations_count": len(self.violation_detector.history),
+            "violations_count": len(self.violation_detector.history) if hasattr(self.violation_detector, "history") else (engine_state.violations_count if engine_state else 0),
         }
 
     def get_annotated_jpeg(self) -> bytes:
@@ -408,13 +425,32 @@ class EdgeRuntimeOrchestrator:
             # Draw Detections
             if self._latest_scene:
                 for obj in self._latest_scene.objects:
-                    bx1, by1, bx2, by2 = int(obj.bbox.x_min * w), int(obj.bbox.y_min * h), int(obj.bbox.x_max * w), int(obj.bbox.y_max * h)
-                    color = (0, 0, 255) if "RED" in obj.label else (0, 255, 255)
+                    bbox = obj.bbox
+                    if hasattr(bbox, "x_min"):
+                        bx1, by1, bx2, by2 = int(bbox.x_min * w), int(bbox.y_min * h), int(bbox.x_max * w), int(bbox.y_max * h)
+                    elif isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                        if max(bbox) <= 1.0:
+                            bx1, by1, bx2, by2 = int(bbox[0] * w), int(bbox[1] * h), int(bbox[2] * w), int(bbox[3] * h)
+                        else:
+                            bx1, by1, bx2, by2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    else:
+                        continue
+                    obj_label = getattr(obj, "type", getattr(obj, "label", "OBJECT"))
+                    color = (0, 0, 255) if "RED" in obj_label else (0, 255, 255)
                     cv2.rectangle(img, (bx1, by1), (bx2, by2), color, 2)
-                    cv2.putText(img, obj.label, (bx1, max(15, by1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+                    cv2.putText(img, obj_label, (bx1, max(15, by1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
 
                 for human in self._latest_scene.humans:
-                    hx1, hy1, hx2, hy2 = int(human.bbox.x_min * w), int(human.bbox.y_min * h), int(human.bbox.x_max * w), int(human.bbox.y_max * h)
+                    bbox = human.bbox
+                    if hasattr(bbox, "x_min"):
+                        hx1, hy1, hx2, hy2 = int(bbox.x_min * w), int(bbox.y_min * h), int(bbox.x_max * w), int(bbox.y_max * h)
+                    elif isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                        if max(bbox) <= 1.0:
+                            hx1, hy1, hx2, hy2 = int(bbox[0] * w), int(bbox[1] * h), int(bbox[2] * w), int(bbox[3] * h)
+                        else:
+                            hx1, hy1, hx2, hy2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    else:
+                        continue
                     cv2.rectangle(img, (hx1, hy1), (hx2, hy2), (255, 100, 0), 2)
                     cv2.putText(img, "HAND", (hx1, max(15, hy1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 100, 0), 1)
 

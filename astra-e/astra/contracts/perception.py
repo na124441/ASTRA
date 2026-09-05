@@ -26,6 +26,11 @@ class DetectedObject(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, description="Detection confidence")
     tracking_state: str | None = Field(default=None, description="Tracking status: TRACKED, LOST, NEW")
 
+    @property
+    def label(self) -> str:
+        """Alias for type semantic label."""
+        return self.type
+
 
 class HandLandmark(BaseModel):
     """Hand position estimation."""
