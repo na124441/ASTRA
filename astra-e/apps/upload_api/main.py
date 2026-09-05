@@ -71,12 +71,26 @@ if STATIC_DIR.exists():
 
 @app.get("/")
 @app.get("/collector")
+@app.get("/api/index.py")
+@app.get("/api/index.py/collector")
 def get_collector_webapp() -> FileResponse:
     """Serve the ASTRA Collector mobile web application."""
     index_file = STATIC_DIR / "index.html"
-    if not index_file.exists():
-        raise HTTPException(status_code=404, detail="Web application static files not found.")
-    return FileResponse(str(index_file))
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    
+    # Fallback search paths in serverless bundles
+    fallback_paths = [
+        Path("/var/task/apps/upload_api/static/index.html"),
+        Path(__file__).resolve().parent.parent.parent / "apps" / "upload_api" / "static" / "index.html",
+        Path("apps/upload_api/static/index.html"),
+    ]
+    for p in fallback_paths:
+        if p.exists():
+            return FileResponse(str(p))
+
+    raise HTTPException(status_code=404, detail="Web application static files not found.")
+
 
 
 
