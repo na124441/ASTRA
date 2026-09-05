@@ -35,7 +35,7 @@ def test_sequence_sample_pydantic_schema():
 
 
 def test_compile_packed_dataset_and_mmap_loading(tmp_path: Path):
-    """Verify compiling raw sequences into astra-e-features layout and loading via MmapFeatureDataset."""
+    """Verify compiling raw sequences into astra-e-features layout using an explicit manifest."""
     seq_dir = tmp_path / "raw_sequences"
     seq_dir.mkdir(parents=True)
 
@@ -54,14 +54,25 @@ def test_compile_packed_dataset_and_mmap_loading(tmp_path: Path):
             targets=targets,
         )
 
+    # Create explicit, leakage-free manifest partitioned by run
+    manifest_path = tmp_path / "dataset_manifest.json"
+    manifest_dict = {
+        "splits": {
+            "train": ["RUN-0001"],
+            "validation": ["RUN-0002"],
+            "test": ["RUN-0003"],
+        }
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest_dict, f)
+
     out_dataset = tmp_path / "astra-e-features"
 
     manifest_data = compile_packed_dataset(
         sequences_dir=seq_dir,
+        manifest_path=manifest_path,
         output_dir=out_dataset,
         window_size=30,
-        train_ratio=0.34,
-        val_ratio=0.33,
     )
 
     assert (out_dataset / "train" / "features.npy").exists()
@@ -107,3 +118,43 @@ def test_compile_packed_dataset_and_mmap_loading(tmp_path: Path):
     batch = next(iter(train_loader))
     assert batch["features"].shape == (min(4, len(train_ds)), 30, 26)
     assert batch["verb"].shape == (min(4, len(train_ds)),)
+
+
+def test_compile_fails_closed_on_missing_or_leaking_manifest(tmp_path: Path):
+    """Verify compiler fails closed when manifest is missing, invalid, or contains data leakage."""
+    seq_dir = tmp_path / "raw_sequences"
+    seq_dir.mkdir(parents=True)
+    np.savez_compressed(
+        seq_dir / "RUN-0001.npz",
+        features=np.zeros((60, 26), dtype=np.float32),
+        verbs=np.zeros(60, dtype=np.int64),
+        objects=np.zeros(60, dtype=np.int64),
+        targets=np.zeros(60, dtype=np.int64),
+    )
+
+    out_dataset = tmp_path / "astra-e-features-fail"
+
+    # 1. Fail closed when manifest_path is None
+    with pytest.raises(ValueError, match="leakage-safe split manifest is strictly required"):
+        compile_packed_dataset(sequences_dir=seq_dir, manifest_path=None, output_dir=out_dataset)
+
+    # 2. Fail closed when manifest file does not exist
+    with pytest.raises(FileNotFoundError, match="Specified split manifest does not exist"):
+        compile_packed_dataset(sequences_dir=seq_dir, manifest_path=tmp_path / "ghost.json", output_dir=out_dataset)
+
+    # 3. Fail closed on data leakage (e.g. RUN-0001 in both train and validation)
+    leak_manifest_path = tmp_path / "leaking_manifest.json"
+    with open(leak_manifest_path, "w", encoding="utf-8") as f:
+        json.dump({"splits": {"train": ["RUN-0001"], "validation": ["RUN-0001"], "test": []}}, f)
+
+    with pytest.raises(ValueError, match="CRITICAL: Data leakage detected"):
+        compile_packed_dataset(sequences_dir=seq_dir, manifest_path=leak_manifest_path, output_dir=out_dataset)
+
+    # 4. Fail closed when manifest references runs not in sequences_dir
+    missing_run_manifest = tmp_path / "missing_run_manifest.json"
+    with open(missing_run_manifest, "w", encoding="utf-8") as f:
+        json.dump({"splits": {"train": ["RUN-9999"], "validation": [], "test": []}}, f)
+
+    with pytest.raises(FileNotFoundError, match="references 1 run.*not found"):
+        compile_packed_dataset(sequences_dir=seq_dir, manifest_path=missing_run_manifest, output_dir=out_dataset)
+

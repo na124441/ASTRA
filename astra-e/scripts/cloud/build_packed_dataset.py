@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 import time
 from pathlib import Path
@@ -42,15 +41,13 @@ from ml.datasets.schemas import (
 
 def compile_packed_dataset(
     sequences_dir: str | Path,
+    manifest_path: str | Path,
     output_dir: str | Path = "data/astra-e-features",
-    manifest_path: str | Path | None = None,
     window_size: int = WINDOW_SIZE,
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-    seed: int = 42,
 ) -> dict[str, Any]:
     """
     Compiles raw/aligned sequence files into the standardized memory-mapped dataset layout.
+    Fails closed: strictly requires a validated, leakage-free split manifest by run/subject.
     """
     seq_dir = Path(sequences_dir)
     out_dir = Path(output_dir)
@@ -61,37 +58,70 @@ def compile_packed_dataset(
     if not seq_files:
         raise FileNotFoundError(f"No .npz sequence files found in {seq_dir}")
 
-    # 2. Resolve or generate splits
-    splits: dict[str, list[str]] = {}
-    if manifest_path and Path(manifest_path).exists():
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest_data = json.load(f)
-            splits = manifest_data.get("splits", {})
-
-    if not splits or "train" not in splits:
-        random.seed(seed)
-        all_ids = [f.stem for f in seq_files]
-        shuffled = list(all_ids)
-        random.shuffle(shuffled)
-        n_total = len(shuffled)
-        n_tr = max(1, int(train_ratio * n_total))
-        n_va = max(1, int(val_ratio * n_total)) if n_total >= 3 else 0
-        train_ids = sorted(shuffled[:n_tr])
-        val_ids = sorted(shuffled[n_tr : n_tr + n_va]) if n_va > 0 else []
-        test_ids = sorted(shuffled[n_tr + n_va :])
-        if not test_ids and len(train_ids) > 1:
-            test_ids = [train_ids.pop()]
-        splits = {
-            "train": train_ids,
-            "validation": val_ids,
-            "test": test_ids,
-        }
-    else:
-        # Standardize split key names ("val" -> "validation")
-        if "val" in splits and "validation" not in splits:
-            splits["validation"] = splits.pop("val")
-
     file_map = {f.stem: f for f in seq_files}
+
+    # 2. Strict Fail-Closed Validation of Split Manifest
+    if manifest_path is None:
+        raise ValueError(
+            "A leakage-safe split manifest is strictly required to compile a packed dataset. "
+            "Never split windows randomly. Generate a validated recording/subject-level split "
+            "manifest first using scripts/cloud/create_splits.py."
+        )
+
+    m_path = Path(manifest_path)
+    if not m_path.exists():
+        raise FileNotFoundError(
+            f"Specified split manifest does not exist at: {m_path}. "
+            "Generate one first using scripts/cloud/create_splits.py."
+        )
+
+    with open(m_path, "r", encoding="utf-8") as f:
+        manifest_data = json.load(f)
+
+    raw_splits = manifest_data.get("splits")
+    if not isinstance(raw_splits, dict):
+        raise ValueError(f"Invalid manifest format at {m_path}: 'splits' field is missing or not a dict.")
+
+    # Normalize split keys ("val" -> "validation")
+    splits: dict[str, list[str]] = {
+        "train": list(raw_splits.get("train", [])),
+        "validation": list(raw_splits.get("validation", raw_splits.get("val", []))),
+        "test": list(raw_splits.get("test", [])),
+    }
+
+    # Verify train split is non-empty
+    if not splits["train"]:
+        raise ValueError(f"Manifest at {m_path} has an empty 'train' split. Refusing to compile.")
+
+    # Strict Leakage Checks (Disjointness Verification across runs/subjects)
+    train_set = set(splits["train"])
+    val_set = set(splits["validation"])
+    test_set = set(splits["test"])
+
+    train_val_leak = train_set & val_set
+    train_test_leak = train_set & test_set
+    val_test_leak = val_set & test_set
+
+    if train_val_leak or train_test_leak or val_test_leak:
+        raise ValueError(
+            f"CRITICAL: Data leakage detected across splits in manifest {m_path}!\n"
+            f"  - Train & Validation overlap: {train_val_leak or 'None'}\n"
+            f"  - Train & Test overlap: {train_test_leak or 'None'}\n"
+            f"  - Validation & Test overlap: {val_test_leak or 'None'}\n"
+            "All splits must be mutually disjoint by recording/run/subject. Compilation aborted."
+        )
+
+    # Verify all referenced runs exist on disk
+    missing_train = [r for r in splits["train"] if r not in file_map]
+    missing_val = [r for r in splits["validation"] if r not in file_map]
+    missing_test = [r for r in splits["test"] if r not in file_map]
+    total_missing = missing_train + missing_val + missing_test
+    if total_missing:
+        raise FileNotFoundError(
+            f"Manifest {m_path} references {len(total_missing)} run(s) not found in {seq_dir}:\n"
+            f"  Missing: {total_missing[:10]}{'...' if len(total_missing) > 10 else ''}\n"
+            "Every run in the manifest must exist in the sequences directory. Compilation aborted."
+        )
 
     split_counts: dict[str, int] = {}
     total_samples = 0
@@ -196,7 +226,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compile aligned sequences into high-performance astra-e-features format.")
     parser.add_argument("--sequences-dir", type=str, default="data/processed/EXP001", help="Path to input sequence .npz files")
     parser.add_argument("--output-dir", type=str, default="data/astra-e-features", help="Output directory for packed dataset")
-    parser.add_argument("--manifest", type=str, default=None, help="Optional existing manifest containing split IDs")
+    parser.add_argument("--manifest", type=str, required=True, help="Path to leakage-safe dataset split manifest JSON (REQUIRED)")
     parser.add_argument("--window-size", type=int, default=30, help="Sliding window size (frames)")
     args = parser.parse_args()
 
