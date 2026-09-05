@@ -37,6 +37,8 @@ from ml.datasets.schemas import (
     WINDOW_SIZE,
     export_feature_contract_dict,
 )
+from ml.datasets.sequence_generator import TemporalSequenceGenerator
+
 
 
 def compile_packed_dataset(
@@ -135,6 +137,7 @@ def compile_packed_dataset(
         features_windows: list[np.ndarray] = []
         labels_list: list[dict[str, Any]] = []
 
+        generator = TemporalSequenceGenerator(window_size=window_size)
         global_sample_idx = 0
         for run_id in split_ids:
             if run_id not in file_map:
@@ -142,41 +145,61 @@ def compile_packed_dataset(
             npz_path = file_map[run_id]
 
             with np.load(npz_path, allow_pickle=True) as data:
-                features = data["features"]  # (T, 26)
-                verbs = data["verbs"]        # (T,)
-                objects = data["objects"]    # (T,)
-                targets = data["targets"]    # (T,)
+                if "X" in data:
+                    run_X = data["X"]
+                    run_verbs = data["verbs"]
+                    run_objects = data["objects"]
+                    run_targets = data["targets"]
+                    meta_raw = data.get("metadata")
+                    if meta_raw is not None:
+                        if isinstance(meta_raw, np.ndarray):
+                            meta_raw = meta_raw.item()
+                        run_metadata = json.loads(meta_raw) if isinstance(meta_raw, str) else list(meta_raw)
+                    else:
+                        run_metadata = []
+                        for idx_w in range(len(run_X)):
+                            run_metadata.append({
+                                "sample_idx": global_sample_idx + idx_w,
+                                "sequence_id": f"EXP001_{run_id}_CAM01_{global_sample_idx + idx_w + 1:06d}",
+                                "run_id": run_id,
+                                "subject_id": "ASTRONAUT-01",
+                                "video_id": f"EXP001_{run_id}_CAM01",
+                                "start_frame": idx_w,
+                                "end_frame": idx_w + window_size - 1,
+                                "verb": int(run_verbs[idx_w]),
+                                "object": int(run_objects[idx_w]),
+                                "target": int(run_targets[idx_w]),
+                            })
+                    for idx_w in range(len(run_X)):
+                        features_windows.append(run_X[idx_w])
+                        item = dict(run_metadata[idx_w])
+                        item["sample_idx"] = global_sample_idx
+                        labels_list.append(item)
+                        global_sample_idx += 1
+                else:
+                    features = data["features"]  # (T, 26)
+                    verbs = data["verbs"]        # (T,)
+                    objects = data["objects"]    # (T,)
+                    targets = data["targets"]    # (T,)
 
-            t_total = len(features)
-            if t_total < window_size:
-                continue
+                    t_total = len(features)
+                    if t_total < window_size:
+                        continue
 
-            # Standardized sample identifiers
-            video_id = f"EXP001_{run_id}_CAM01"
-            subject_id = "ASTRONAUT-01"
+                    gen_seqs = generator.generate_sequences(
+                        features=features.astype(np.float32),
+                        verbs=verbs,
+                        objects=objects,
+                        targets=targets,
+                        run_id=run_id,
+                    )
+                    for idx_w in range(gen_seqs.num_sequences):
+                        features_windows.append(gen_seqs.X[idx_w])
+                        item = dict(gen_seqs.sample_metadata[idx_w])
+                        item["sample_idx"] = global_sample_idx
+                        labels_list.append(item)
+                        global_sample_idx += 1
 
-            for t in range(window_size - 1, t_total):
-                start_f = t - window_size + 1
-                end_f = t
-                seq_id = f"{video_id}_{global_sample_idx + 1:06d}"
-
-                window = features[start_f : end_f + 1]  # shape: (30, 26)
-                features_windows.append(window)
-
-                label_item = {
-                    "sample_idx": global_sample_idx,
-                    "sequence_id": seq_id,
-                    "run_id": run_id,
-                    "subject_id": subject_id,
-                    "video_id": video_id,
-                    "start_frame": int(start_f),
-                    "end_frame": int(end_f),
-                    "verb": int(verbs[t]),
-                    "object": int(objects[t]),
-                    "target": int(targets[t]),
-                }
-                labels_list.append(label_item)
-                global_sample_idx += 1
 
         # Save binary memory-mappable tensor: [N, 30, 26] float32
         if features_windows:

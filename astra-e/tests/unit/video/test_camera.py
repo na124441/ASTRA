@@ -9,8 +9,9 @@ from astra.video.capture import CapturePipeline
 
 def test_mock_camera_stream():
     """Verify MockCamera frame generation, dimensions, and timestamps."""
-    cam = MockCamera(width=320, height=240, fps=30.0, total_frames=10)
+    cam = MockCamera(width=320, height=240, fps=30.0, total_frames=10, loop=False)
     cam.start()
+
 
     frames_read = 0
     while True:

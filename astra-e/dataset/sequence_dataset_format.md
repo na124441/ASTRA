@@ -24,6 +24,41 @@ Instead, ASTRA-E separates the dataset into:
 
 ---
 
+## 1.1 Temporal Invariants & Causal Sequence Generation (Phase 2.7)
+
+Phase 2.7 formalizes the transformation of continuous run-level feature streams $\mathbf{F} \in \mathbb{R}^{T \times 26}$ and frame annotations $\mathbf{Y} \in \mathbb{N}^T$ into causal temporal training samples.
+
+### Mathematical Formulation
+For a recording of length $T \ge 30$, sliding window size $W = 30$, and stride $s = 1$:
+- Total generated sequences:
+  $$N = T - W + 1 = T - 30 + 1$$
+- Historical observation window for sample $i \in [0, N-1]$:
+  $$\mathbf{X}_i = \mathbf{F}[i : i + 30] \in \mathbb{R}^{30 \times 26}$$
+- Causal endpoint supervision label:
+  $$y_i = \mathbf{Y}[i + 29] = \mathbf{Y}[t_{\text{end}}]$$
+- Label frame assignment:
+  $$t_{\text{label}} = i + 29 = \text{end\_frame}_i$$
+
+### Strict Invariants & Policies
+| Contract Parameter | Value | Enforcement Policy |
+|---|---|---|
+| `window_size` | `30` | Exactly 30 frames (~1.0 s at 30 FPS). $T < 30$ fails closed. |
+| `stride` | `1` | Dense sequential windowing. Every valid causal window is captured. |
+| `causal` | `true` | Zero future lookahead. Features strictly precede or coincide with $t_{\text{label}}$. |
+| `label_frame` | `window_end` | Supervision is aligned with the final observed frame ($i + 29$), not future or midpoint. |
+| `cross_recording_windows` | `forbidden` | Windows never cross physical recording or run boundaries. |
+| `random_window_split` | `forbidden` | No random window shuffling across splits. Splitting is strictly by run/subject. |
+| `fail_closed` | `true` | Rejects NaN, Inf, non-float32, non-26D, length mismatches, and contradictory overlapping annotations. |
+
+### Procedural Violation Head Exclusion
+In ASTRA-E, `VIOLATION_VOCAB` is an evaluation benchmark and protocol monitoring target, **NOT** an LSTM output prediction head:
+1. **Separation of Physical Perception vs. Protocol Logic**: The temporal neural network's role is strictly physical action recognition ($\text{Verb} \times \text{Object} \times \text{Target}$).
+2. **Deterministic Protocol Verification**: Procedural violations (e.g., executing Step 3 before Step 2, selecting the wrong container) are evaluated downstream by the symbolic `ProcedureGraph` engine against flight rules.
+3. **Generalization**: Training neural networks directly on violation classes causes severe overfitting to specific failure modes and harms recognition of valid actions.
+
+
+---
+
 ## 2. Logical Sample Representation
 
 Each individual sample logically corresponds to the following schema:

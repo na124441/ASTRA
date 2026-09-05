@@ -14,13 +14,10 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from ml.datasets.schemas import (
-    ActionSegmentAnnotation,
-    OBJECT_TO_IDX,
-    RecordingMetadata,
-    TARGET_TO_IDX,
-    VERB_TO_IDX,
-    VIOLATION_VOCAB,
+from ml.datasets.schemas import WINDOW_SIZE
+from ml.datasets.sequence_generator import (
+    TemporalSequenceGenerator,
+    align_segments_to_frame_labels,
 )
 
 
@@ -28,71 +25,75 @@ def build_aligned_sequence(
     feature_npz_path: str | Path,
     annotation_json_path: str | Path | None,
     output_npz_path: str | Path,
+    output_format: str = "aligned_stream",
+    window_size: int = WINDOW_SIZE,
 ) -> dict[str, Any]:
     """
     Combines continuous 26-D features with frame-level action labels.
+    Delegates alignment and sequence generation to TemporalSequenceGenerator.
     """
     f_path = Path(feature_npz_path)
     out_path = Path(output_npz_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     with np.load(f_path, allow_pickle=True) as data:
-        features = data["features"]  # (T, 26)
+        if "features" not in data:
+            raise ValueError(f"Missing 'features' array in NPZ: {f_path}")
+        features = data["features"].astype(np.float32)
         timestamps = data["timestamps"] if "timestamps" in data else np.arange(len(features)) / 30.0
 
     n_frames = len(features)
-    verb_indices = np.full(n_frames, VERB_TO_IDX["IDLE"], dtype=np.int64)
-    object_indices = np.full(n_frames, OBJECT_TO_IDX["NONE"], dtype=np.int64)
-    target_indices = np.full(n_frames, TARGET_TO_IDX["NONE"], dtype=np.int64)
-    violation_indices = np.zeros(n_frames, dtype=np.int64)
 
     # Load annotations if provided
     segments: list[dict[str, Any]] = []
+    meta_dict: dict[str, Any] = {}
     if annotation_json_path and Path(annotation_json_path).exists():
         with open(annotation_json_path, "r", encoding="utf-8") as f:
             meta_dict = json.load(f)
             segments = meta_dict.get("segments", [])
 
-    for seg in segments:
-        s_frame = seg.get("start_frame")
-        e_frame = seg.get("end_frame")
-        s_time = seg.get("start_time", 0.0)
-        e_time = seg.get("end_time", 0.0)
+    # Strict alignment with conflict detection via Phase 2.7 sequence generator
+    verbs, objects, targets, violations = align_segments_to_frame_labels(
+        segments=segments,
+        total_frames=n_frames,
+    )
 
-        # Resolve frame indices from timestamps if frame numbers not set
-        if s_frame is None or e_frame is None or s_frame == 0 and e_frame == 0:
-            s_idx = int(s_time * 30.0)
-            e_idx = int(e_time * 30.0)
-        else:
-            s_idx = int(s_frame)
-            e_idx = int(e_frame)
+    if output_format == "windows":
+        generator = TemporalSequenceGenerator(window_size=window_size)
+        gen_seqs = generator.generate_sequences(
+            features=features,
+            verbs=verbs,
+            objects=objects,
+            targets=targets,
+            recording_meta=meta_dict,
+            run_id=out_path.stem,
+        )
+        np.savez_compressed(
+            out_path,
+            X=gen_seqs.X,
+            verbs=gen_seqs.verbs,
+            objects=gen_seqs.objects,
+            targets=gen_seqs.targets,
+            metadata=json.dumps(gen_seqs.sample_metadata),
+            total_frames=n_frames,
+            window_size=window_size,
+        )
+        return {
+            "sequence_id": out_path.stem,
+            "total_frames": n_frames,
+            "num_sequences": gen_seqs.num_sequences,
+            "segments_applied": len(segments),
+            "output_file": str(out_path),
+        }
 
-        s_idx = max(0, min(n_frames - 1, s_idx))
-        e_idx = max(s_idx, min(n_frames, e_idx + 1))
-
-        v_name = seg.get("verb", "IDLE")
-        o_name = seg.get("object") or "NONE"
-        t_name = seg.get("target") or "NONE"
-        vi_name = seg.get("violation_type", "NONE")
-
-        v_code = VERB_TO_IDX.get(v_name, VERB_TO_IDX["UNKNOWN"])
-        o_code = OBJECT_TO_IDX.get(o_name, OBJECT_TO_IDX["NONE"])
-        t_code = TARGET_TO_IDX.get(t_name, TARGET_TO_IDX["NONE"])
-        vi_code = VIOLATION_VOCAB.index(vi_name) if vi_name in VIOLATION_VOCAB else 0
-
-        verb_indices[s_idx:e_idx] = v_code
-        object_indices[s_idx:e_idx] = o_code
-        target_indices[s_idx:e_idx] = t_code
-        violation_indices[s_idx:e_idx] = vi_code
-
-    # Save aligned supervised sequence
+    # Default: save aligned continuous stream [T, 26]
     np.savez_compressed(
         out_path,
-        features=features.astype(np.float32),
-        verbs=verb_indices,
-        objects=object_indices,
-        targets=target_indices,
-        violations=violation_indices,
+        features=features,
+        verbs=verbs,
+        objects=objects,
+        targets=targets,
+        violations=violations,
         timestamps=timestamps.astype(np.float32),
     )
 
@@ -109,6 +110,13 @@ def main() -> None:
     parser.add_argument("--features-dir", required=True, help="Directory containing extracted 26-D .npz files")
     parser.add_argument("--annotations-dir", default=None, help="Directory containing annotation JSON files")
     parser.add_argument("--output-dir", default="data/cloud/sequences", help="Output directory for supervised sequence NPZs")
+    parser.add_argument(
+        "--output-format",
+        choices=["aligned_stream", "windows"],
+        default="aligned_stream",
+        help="Output format: 'aligned_stream' (continuous [T, 26]) or 'windows' (causal [N, 30, 26])",
+    )
+    parser.add_argument("--window-size", type=int, default=WINDOW_SIZE, help="Sliding window size for windows format")
     args = parser.parse_args()
 
     feat_dir = Path(args.features_dir)
@@ -117,7 +125,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     npz_files = sorted(list(feat_dir.glob("*.npz")))
-    print(f"\nProcessing {len(npz_files)} feature files into supervised temporal training sequences...")
+    print(f"\nProcessing {len(npz_files)} feature files into supervised temporal training sequences (format={args.output_format})...")
 
     for idx, f in enumerate(npz_files, start=1):
         stem = f.stem
@@ -129,7 +137,13 @@ def main() -> None:
             annot_file = None
 
         out_npz = out_dir / f"{stem}.npz"
-        res = build_aligned_sequence(f, annot_file, out_npz)
+        res = build_aligned_sequence(
+            f,
+            annot_file,
+            out_npz,
+            output_format=args.output_format,
+            window_size=args.window_size,
+        )
         print(f"[{idx}/{len(npz_files)}] {stem} -> {res['total_frames']} frames, {res['segments_applied']} segments")
 
     print(f"\nSequence generation complete. Ready for split generation: {out_dir}\n")
