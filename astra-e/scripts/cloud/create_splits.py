@@ -4,124 +4,90 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
-import time
 from pathlib import Path
-import numpy as np
+from typing import Any
 
 # Ensure project root is on sys.path
 project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from ml.datasets.schemas import DatasetManifest
-from ml.datasets.splits import SplitManager
+from ml.datasets.schemas import WINDOW_SIZE, SplitManifest
+from ml.datasets.splits import SplitManager, generate_leakage_safe_splits
 
 
-def generate_dataset_splits(
-    sequences_dir: str | Path,
-    output_manifest: str | Path = "data/manifests/dataset_manifest.json",
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-    seed: int = 42,
-    window_size: int = 30,
-) -> DatasetManifest:
-    """
-    Generate deterministic, leak-free train/val/test splits at the recording level.
-    """
-    seq_dir = Path(sequences_dir)
-    out_manifest = Path(output_manifest)
-    out_manifest.parent.mkdir(parents=True, exist_ok=True)
+def print_split_summary(manifest: SplitManifest, output_manifest: str | Path) -> None:
+    """Pretty prints detailed partitioning statistics and auditing results."""
+    print("\n" + "=" * 74)
+    print("║" + "ASTRA-E LEAKAGE-SAFE DATASET SPLIT SUMMARY (PHASE 2.8)".center(72) + "║")
+    print("=" * 74)
+    print(f"  Schema Version:      {manifest.schema_version}")
+    print(f"  Grouping Strategy:   {manifest.group_by.upper()}-DISJOINT")
+    print(f"  Random Seed:         {manifest.seed}")
+    print(f"  Configured Ratios:   Train={manifest.ratios['train']:.2f}, Val={manifest.ratios['validation']:.2f}, Test={manifest.ratios['test']:.2f}")
+    print("-" * 74)
 
-    npz_files = sorted(list(seq_dir.glob("*.npz")))
-    if not npz_files:
-        raise FileNotFoundError(f"No .npz sequence files found in {seq_dir}")
+    total_groups = manifest.metadata.get("total_groups", 0)
+    print(f"  Total Partition Groups: {total_groups}")
+    print(f"  {'Partition':<12} | {'Subjects':<8} | {'Runs':<6} | {'Recordings':<10} | {'30-f Windows':<12}")
+    print("  " + "-" * 62)
 
-    random.seed(seed)
-    run_ids = [f.stem for f in npz_files]
-    shuffled = list(run_ids)
-    random.shuffle(shuffled)
+    for s_name in ("train", "validation", "test"):
+        stats = manifest.statistics.get(s_name, {})
+        n_subj = stats.get("num_subjects", 0)
+        n_run = stats.get("num_runs", 0)
+        n_rec = stats.get("num_recordings", 0)
+        n_win = stats.get("num_windows", 0)
+        print(f"  {s_name:<12} | {n_subj:<8} | {n_run:<6} | {n_rec:<10} | {n_win:<12,}")
 
-    n_total = len(shuffled)
-    n_train = max(1, int(train_ratio * n_total))
-    n_val = max(1, int(val_ratio * n_total)) if n_total >= 3 else 0
-    
-    train_runs = sorted(shuffled[:n_train])
-    val_runs = sorted(shuffled[n_train : n_train + n_val]) if n_val > 0 else []
-    test_runs = sorted(shuffled[n_train + n_val :])
+    print("-" * 74)
+    # Rare class warnings
+    if manifest.rare_classes:
+        print(f"  ⚠️  RARE-CLASS ALERTS ({len(manifest.rare_classes)} detected):")
+        for rc in manifest.rare_classes[:5]:
+            print(f"      - [{rc['category']}] '{rc['class_name']}': missing from {rc['missing_splits']}")
+        if len(manifest.rare_classes) > 5:
+            print(f"      ... and {len(manifest.rare_classes) - 5} more.")
+    else:
+        print("  ✓ All active vocabulary classes represented across all splits.")
 
-    # If test is empty due to small dataset, take from train
-    if not test_runs and len(train_runs) > 1:
-        test_runs = [train_runs.pop()]
-
-    # Calculate total windows
-    total_windows = 0
-    for f in npz_files:
-        with np.load(f, allow_pickle=True) as d:
-            n_f = len(d["features"])
-            total_windows += max(0, n_f - window_size + 1)
-
-    manifest = DatasetManifest(
-        dataset_version=time.strftime("%Y.%m.%d"),
-        generator_version="1.0.0",
-        feature_schema_version="kinematic-26d-v1.0",
-        random_seed=seed,
-        recordings_count=n_total,
-        total_windows=total_windows,
-        splits={
-            "train": train_runs,
-            "val": val_runs,
-            "test": test_runs,
-        },
-        created_at=time.time(),
-        metadata={
-            "sequences_dir": str(seq_dir),
-            "train_count": len(train_runs),
-            "val_count": len(val_runs),
-            "test_count": len(test_runs),
-            "window_size": window_size,
-        },
-    )
-
-    with open(out_manifest, "w", encoding="utf-8") as f:
-        f.write(manifest.model_dump_json(indent=2))
-
-    print("\n" + "=" * 68)
-    print("║" + "DATASET SPLIT GENERATION SUMMARY".center(66) + "║")
-    print("=" * 68)
-    print(f"  Sequences Count:    {n_total}")
-    print(f"  Total 30-f Windows: {total_windows:,}")
-    print(f"  Train Runs:         {len(train_runs)} ({len(train_runs)/n_total*100:.1f}%)")
-    print(f"  Val Runs:           {len(val_runs)} ({len(val_runs)/n_total*100:.1f}%)")
-    print(f"  Test Runs:          {len(test_runs)} ({len(test_runs)/n_total*100:.1f}%)")
-    print(f"  Manifest Path:      {out_manifest}")
-    print("=" * 68 + "\n")
-
-    # Run leakage verification
-    manager = SplitManager(manifest_path=out_manifest)
-    manager.verify_no_leakage()
-    print("✓ Split leakage verification PASSED: 0% data overlap detected.")
-
-    return manifest
+    print("-" * 74)
+    audit = manifest.disjointness_audit
+    print(f"  Disjoint Runs:       {'✓ PASSED' if audit.get('mutually_disjoint_runs') else '❌ FAILED'}")
+    print(f"  Disjoint Recordings: {'✓ PASSED' if audit.get('mutually_disjoint_recordings') else '❌ FAILED'}")
+    if audit.get("subject_disjoint_enforced"):
+        print(f"  Disjoint Subjects:   {'✓ PASSED (Subject-Disjoint Enforced)' if audit.get('mutually_disjoint_subjects') else '❌ FAILED'}")
+    print(f"  Manifest Written:    {output_manifest}")
+    print("=" * 74 + "\n")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ASTRA-E Split Generator")
+    parser = argparse.ArgumentParser(description="ASTRA-E Leakage-Safe Split Generator")
     parser.add_argument("--sequences-dir", default="data/processed/EXP001", help="Directory with processed .npz sequences")
+    parser.add_argument("--metadata-dir", default=None, help="Directory containing metadata JSON files (default: sequences-dir)")
     parser.add_argument("--output-manifest", default="data/manifests/dataset_manifest.json", help="Target manifest JSON path")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--group-by", choices=["subject", "run"], default="subject", help="Grouping level: 'subject' (preferred) or 'run'")
     parser.add_argument("--train-ratio", type=float, default=0.70, help="Train ratio (default: 0.70)")
-    parser.add_argument("--val-ratio", type=float, default=0.15, help="Val ratio (default: 0.15)")
+    parser.add_argument("--val-ratio", "--validation-ratio", dest="val_ratio", type=float, default=0.15, help="Val ratio (default: 0.15)")
+    parser.add_argument("--test-ratio", type=float, default=0.15, help="Test ratio (default: 0.15)")
+    parser.add_argument("--seed", type=int, default=42, help="Deterministic random seed (default: 42)")
+    parser.add_argument("--window-size", type=int, default=WINDOW_SIZE, help="Sliding window size (default: 30)")
     args = parser.parse_args()
 
-    generate_dataset_splits(
+    manifest = generate_leakage_safe_splits(
         sequences_dir=args.sequences_dir,
+        metadata_dir=args.metadata_dir,
         output_manifest=args.output_manifest,
+        group_by=args.group_by,
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
         seed=args.seed,
+        window_size=args.window_size,
     )
+
+    print_split_summary(manifest, args.output_manifest)
 
 
 if __name__ == "__main__":

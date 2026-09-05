@@ -118,7 +118,7 @@ class RecordingMetadata(BaseModel):
 
 class DatasetManifest(BaseModel):
     """Versioned dataset catalog ensuring strict reproducibility."""
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     dataset_version: str = "2026.09.01"
     generator_version: str = "1.0.0"
@@ -129,6 +129,36 @@ class DatasetManifest(BaseModel):
     splits: dict[str, list[str]]  # {"train": [...], "val": [...], "test": [...]}
     created_at: float = Field(default_factory=time.time)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SplitPartition(BaseModel):
+    """Container holding subject, run, and recording IDs assigned to a split."""
+    model_config = ConfigDict(frozen=True)
+
+    subjects: list[str] = Field(default_factory=list, description="Unique astronaut/subject IDs")
+    runs: list[str] = Field(default_factory=list, description="Unique physical run IDs")
+    recordings: list[str] = Field(default_factory=list, description="Unique video/recording IDs")
+
+
+class SplitManifest(BaseModel):
+    """Canonical Phase 2.8 Leakage-Safe Dataset Split Manifest."""
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    schema_version: str = "1.0"
+    dataset_version: str = "2026.09.05"
+    split_algorithm: str = "group_disjoint_v1.0"
+    seed: int = 42
+    group_by: str = "subject"  # "subject" | "run"
+    ratios: dict[str, float] = Field(default_factory=lambda: {"train": 0.70, "validation": 0.15, "test": 0.15})
+    splits: dict[str, list[str]] = Field(default_factory=dict)  # {"train": [...], "validation": [...], "test": [...]}
+    train: SplitPartition = Field(default_factory=SplitPartition)
+    validation: SplitPartition = Field(default_factory=SplitPartition)
+    test: SplitPartition = Field(default_factory=SplitPartition)
+    statistics: dict[str, Any] = Field(default_factory=dict)
+    disjointness_audit: dict[str, Any] = Field(default_factory=dict)
+    rare_classes: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 
 # Feature Provenance Registry (verifies zero ground-truth leakage)

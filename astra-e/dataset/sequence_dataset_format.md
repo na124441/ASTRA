@@ -56,10 +56,55 @@ In ASTRA-E, `VIOLATION_VOCAB` is an evaluation benchmark and protocol monitoring
 2. **Deterministic Protocol Verification**: Procedural violations (e.g., executing Step 3 before Step 2, selecting the wrong container) are evaluated downstream by the symbolic `ProcedureGraph` engine against flight rules.
 3. **Generalization**: Training neural networks directly on violation classes causes severe overfitting to specific failure modes and harms recognition of valid actions.
 
+---
+
+## 1.2 Leakage-Safe Dataset Partitioning & Split Manifest (Phase 2.8)
+
+In Phase 2.8, dataset partitioning is performed strictly at the group level (`subject` or `run`) prior to packing into memory-mapped tensors.
+
+### Why Individual Windows Must Never Be Randomly Split
+A sliding window formulation creates extreme mutual information between neighboring samples:
+- Window $i$: observations from frames $[0 \dots 29]$
+- Window $i+1$: observations from frames $[1 \dots 30]$
+- Window $i+2$: observations from frames $[2 \dots 31]$
+
+Adjacent windows share **29 out of 30 frames (96.7% identical feature values)**. If windows are randomly shuffled into train and test partitions:
+- The network trains on frame 1..29 and is tested on frame 1..30.
+- Test performance appears artificially high (>99%), but the model has merely memorized identical video seconds rather than learning temporal dynamics.
+- When deployed on a new astronaut or novel run, the model fails catastrophically.
+
+Therefore, **random window splitting is strictly forbidden** across the ASTRA-E architecture.
+
+### Split Units & Grouping Policies
+| Grouping Strategy | Split Unit | Applicability & Invariant |
+|---|---|---|
+| **`group_by = subject`** *(Preferred)* | Astronaut / Human Operator | Evaluates cross-subject generalization. All runs and recordings of an astronaut belong to the same partition. Requires $\ge 3$ distinct subjects. Never silently downgraded. |
+| **`group_by = run`** *(Fallback)* | Physical Experiment Run | Used when single-astronaut or insufficient subjects exist. All camera angles observing the run belong to the same partition. |
+
+### Mathematical Disjointness Guarantees
+The split generator guarantees mutual exclusivity across all active partitions:
+$$\begin{aligned}
+\text{Train}_{\text{run}} \cap \text{Val}_{\text{run}} &= \emptyset \\
+\text{Train}_{\text{run}} \cap \text{Test}_{\text{run}} &= \emptyset \\
+\text{Val}_{\text{run}} \cap \text{Test}_{\text{run}} &= \emptyset
+\end{aligned}$$
+
+When `group_by = subject`, subject disjointness is additionally enforced:
+$$\begin{aligned}
+\text{Train}_{\text{subject}} \cap \text{Val}_{\text{subject}} &= \emptyset \\
+\text{Train}_{\text{subject}} \cap \text{Test}_{\text{subject}} &= \emptyset \\
+\text{Val}_{\text{subject}} \cap \text{Test}_{\text{subject}} &= \emptyset
+\end{aligned}$$
+
+### Multi-Camera Physical Event Binding
+When an experiment is recorded from multiple viewpoints (e.g., overhead and side payload rack cameras):
+$$\text{RUN-001-CAM01} \quad \text{and} \quad \text{RUN-001-CAM02}$$
+They capture the **exact same physical experiment execution**. Placing CAM01 in Train and CAM02 in Test creates physical event leakage. All camera views sharing the same canonical `run_id` are bound together into a single indivisible unit.
 
 ---
 
 ## 2. Logical Sample Representation
+
 
 Each individual sample logically corresponds to the following schema:
 
