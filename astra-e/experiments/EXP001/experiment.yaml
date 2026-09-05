@@ -1,0 +1,14 @@
+experiment:
+  id: "EXP-001"
+  name: "BAS Sample Biological Payload Experiment"
+  version: "1.0"
+  workspace:
+    cameras:
+      - "CAM-01"
+  objects:
+    - "CONTAINER"
+    - "RED_COMPONENT"
+    - "YELLOW_COMPONENT"
+  targets:
+    - "TARGET_A"
+    - "TARGET_B"

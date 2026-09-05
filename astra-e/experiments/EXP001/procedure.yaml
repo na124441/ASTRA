@@ -1,0 +1,69 @@
+procedure:
+  id: "PROC-EXP-001"
+  name: "Sample Two-Component Extraction and Placement"
+  version: "1.0"
+  experiment_id: "EXP-001"
+  objects:
+    - "CONTAINER"
+    - "RED_COMPONENT"
+    - "YELLOW_COMPONENT"
+  targets:
+    - "TARGET_A"
+    - "TARGET_B"
+  initial_step_id: "S01"
+  terminal_step_ids:
+    - "S06"
+  steps:
+    - id: "S01"
+      action: "OPEN_CONTAINER"
+      object: "CONTAINER"
+      target: null
+      description: "Open the payload experiment container"
+      allowed_next: ["S02"]
+      optional: false
+      repeatable: false
+
+    - id: "S02"
+      action: "PICK"
+      object: "RED_COMPONENT"
+      target: null
+      description: "Pick the red component from container"
+      allowed_next: ["S03"]
+      optional: false
+      repeatable: false
+
+    - id: "S03"
+      action: "PLACE"
+      object: "RED_COMPONENT"
+      target: "TARGET_A"
+      description: "Place the red component into Target A"
+      allowed_next: ["S04"]
+      optional: false
+      repeatable: false
+
+    - id: "S04"
+      action: "PICK"
+      object: "YELLOW_COMPONENT"
+      target: null
+      description: "Pick the yellow component from container"
+      allowed_next: ["S05"]
+      optional: false
+      repeatable: false
+
+    - id: "S05"
+      action: "PLACE"
+      object: "YELLOW_COMPONENT"
+      target: "TARGET_B"
+      description: "Place the yellow component into Target B"
+      allowed_next: ["S06"]
+      optional: false
+      repeatable: false
+
+    - id: "S06"
+      action: "CLOSE_CONTAINER"
+      object: "CONTAINER"
+      target: null
+      description: "Close the payload experiment container"
+      allowed_next: []
+      optional: false
+      repeatable: false

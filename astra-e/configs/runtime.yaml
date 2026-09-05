@@ -1,0 +1,13 @@
+runtime:
+  confidence_threshold: 0.75
+  uncertainty_threshold: 0.50
+  temporal_window_size: 30
+  stability_frames: 5
+
+alert_suppression:
+  cooldown_seconds: 3.0
+  max_repeat_count: 1
+
+procedure:
+  allow_out_of_order: false
+  strict_validation: true

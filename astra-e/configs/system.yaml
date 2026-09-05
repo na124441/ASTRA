@@ -1,0 +1,20 @@
+system:
+  name: "ASTRA-E"
+  version: "1.0.0"
+  mode: "edge_offline"
+  device_id: "BAS-PAYLOAD-01"
+
+logging:
+  level: "INFO"
+  format: "json"
+  destination: "logs/system.log"
+
+event_bus:
+  type: "in_memory"
+  max_queue_size: 1000
+  drop_policy: "oldest"
+
+storage:
+  type: "sqlite"
+  database_path: "data/runs/astra_runtime.db"
+  video_storage_dir: "data/recordings"
