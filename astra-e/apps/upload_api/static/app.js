@@ -365,11 +365,11 @@ async function executeUpload() {
   const sha256 = state.activeSha256;
 
   document.getElementById('upload-task-sub').textContent = `${task.experiment_id} • ${task.run_id} (${task.camera_id})`;
-  document.getElementById('upload-status-title').textContent = 'STREAMING 8 MB CHUNKS...';
+  document.getElementById('upload-status-title').textContent = 'STREAMING RESUMABLE CHUNKS...';
   document.getElementById('upload-error-box').classList.add('hidden');
   document.getElementById('btn-retry-upload').classList.add('hidden');
 
-  const chunkSize = 8 * 1024 * 1024; // 8 MB
+  const chunkSize = 3 * 1024 * 1024; // 3 MB (safe for Vercel 4.5 MB request limit)
   const totalChunks = Math.ceil(blob.size / chunkSize);
 
   const metadata = {

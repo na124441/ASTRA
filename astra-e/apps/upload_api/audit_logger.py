@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,11 @@ class CollectorAuditLogger:
 
     def __init__(self, log_dir: Path | str | None = None) -> None:
         if log_dir is None:
-            self.log_dir = Path(__file__).resolve().parent.parent.parent / "data" / "collector_audit"
+            if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+                import tempfile
+                self.log_dir = Path(tempfile.gettempdir()) / "collector_audit"
+            else:
+                self.log_dir = Path(__file__).resolve().parent.parent.parent / "data" / "collector_audit"
         else:
             self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)

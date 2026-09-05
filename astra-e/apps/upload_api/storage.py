@@ -14,7 +14,11 @@ class ChunkStorageManager:
 
     def __init__(self, base_staging_dir: Path | str | None = None) -> None:
         if base_staging_dir is None:
-            self.base_staging_dir = Path(__file__).resolve().parent.parent.parent / "data" / "collector_staging"
+            if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+                import tempfile
+                self.base_staging_dir = Path(tempfile.gettempdir()) / "collector_staging"
+            else:
+                self.base_staging_dir = Path(__file__).resolve().parent.parent.parent / "data" / "collector_staging"
         else:
             self.base_staging_dir = Path(base_staging_dir)
         self.base_staging_dir.mkdir(parents=True, exist_ok=True)
