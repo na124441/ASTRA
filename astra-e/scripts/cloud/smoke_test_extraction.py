@@ -17,7 +17,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from astra.video.camera import MockCamera
-from scripts.cloud.extract_features_cloud import VideoFeatureExtractorWorker
+from scripts.cloud.extract_features_cloud import VideoFeatureExtractorWorker, assert_extraction_invariants
 
 
 def generate_short_recording(
@@ -98,14 +98,9 @@ def run_smoke_test(
         timestamps = data["timestamps"]
         frame_ids = data["frame_ids"]
 
-    # Invariants checks
+    # Enforce Extraction Invariants
+    assert_extraction_invariants(features, timestamps, frame_ids, source_name=str(out_npz))
     T, D = features.shape
-    assert D == 26, f"Expected 26 features, got {D}"
-    assert features.dtype == np.float32, f"Expected float32 dtype, got {features.dtype}"
-    assert len(timestamps) == T, f"Timestamp count {len(timestamps)} != frame count {T}"
-    assert len(frame_ids) == T, f"Frame ID count {len(frame_ids)} != frame count {T}"
-    assert not np.isnan(features).any(), "Found NaN values in extracted feature tensor!"
-    assert not np.isinf(features).any(), "Found Inf values in extracted feature tensor!"
 
     # Print Formatted Verification Box
     print("\n" + "=" * 70)

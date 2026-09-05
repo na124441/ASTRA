@@ -16,6 +16,98 @@ if str(project_root) not in sys.path:
 from astra.activity.features import KinematicFeatureExtractor
 
 
+class ExtractionInvariantError(ValueError):
+    """Raised when an extracted feature sequence violates physical, dimensional, or temporal invariants."""
+    pass
+
+
+def assert_extraction_invariants(
+    features: np.ndarray,
+    timestamps: np.ndarray,
+    frame_ids: np.ndarray,
+    source_name: str = "video",
+) -> None:
+    """
+    Fails loudly if extracted features violate any contract invariant:
+      - features.ndim == 2
+      - features.shape[1] == 26
+      - features.dtype == float32
+      - T > 0 (reject empty recordings)
+      - Reject NaN
+      - Reject Inf
+      - Reject non-monotonic timestamps
+      - Reject non-monotonic frame IDs
+    """
+    # 1. Reject empty recordings (T > 0)
+    if len(features) == 0:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Rejected empty recording: 0 frames extracted (T must be > 0)."
+        )
+
+    # 2. Invariant: features.ndim == 2
+    if features.ndim != 2:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: features.ndim must be 2, got {features.ndim} (shape: {features.shape})."
+        )
+
+    # 3. Invariant: features.shape[1] == 26 (reject wrong feature dimension)
+    T, D = features.shape
+    if D != 26:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: features.shape[1] must be exactly 26, got {D} (shape: {features.shape})."
+        )
+
+    # 4. Invariant: features.dtype == float32
+    if features.dtype != np.float32:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: features.dtype must be float32, got {features.dtype}."
+        )
+
+    # 5. Reject NaN
+    if np.isnan(features).any():
+        nan_count = int(np.isnan(features).sum())
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: detected {nan_count} NaN values in extracted feature matrix!"
+        )
+
+    # 6. Reject Inf
+    if np.isinf(features).any():
+        inf_count = int(np.isinf(features).sum())
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: detected {inf_count} Inf values in extracted feature matrix!"
+        )
+
+    # 7. Reject non-monotonic or mismatched timestamps
+    if len(timestamps) != T:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: timestamp count {len(timestamps)} does not match frame count {T}."
+        )
+
+    if T > 1:
+        diffs = np.diff(timestamps)
+        non_mono = diffs <= 0.0
+        if np.any(non_mono):
+            bad_idx = int(np.where(non_mono)[0][0])
+            raise ExtractionInvariantError(
+                f"[{source_name}] Invariant violation: non-monotonic timestamps detected at frame {bad_idx} -> {bad_idx + 1}: "
+                f"t[{bad_idx}] = {timestamps[bad_idx]:.6f}s, t[{bad_idx + 1}] = {timestamps[bad_idx + 1]:.6f}s (dt = {diffs[bad_idx]:.6f}s <= 0)."
+            )
+
+    # 8. Reject mismatched or non-monotonic frame IDs
+    if len(frame_ids) != T:
+        raise ExtractionInvariantError(
+            f"[{source_name}] Invariant violation: frame_ids count {len(frame_ids)} does not match frame count {T}."
+        )
+
+    if T > 1:
+        id_diffs = np.diff(frame_ids)
+        if np.any(id_diffs <= 0):
+            bad_f_idx = int(np.where(id_diffs <= 0)[0][0])
+            raise ExtractionInvariantError(
+                f"[{source_name}] Invariant violation: non-monotonic or duplicate frame_ids detected at index {bad_f_idx}."
+            )
+
+
 class VideoFeatureExtractorWorker:
     """
     Cloud worker that ingests MP4 video files and extracts normalized 26-D feature sequences
@@ -108,7 +200,15 @@ class VideoFeatureExtractorWorker:
         timestamps_arr = np.array(timestamps_list, dtype=np.float32)
         frame_ids_arr = np.array(frame_ids_list, dtype=np.int32)
 
-        # Save compressed NPZ
+        # Enforce Extraction Invariants (fails loudly if any contract invariant is violated)
+        assert_extraction_invariants(
+            features=features_arr,
+            timestamps=timestamps_arr,
+            frame_ids=frame_ids_arr,
+            source_name=v_path.name,
+        )
+
+        # Save compressed NPZ only after invariants are strictly satisfied
         np.savez_compressed(
             out_path,
             features=features_arr,

@@ -122,3 +122,65 @@ def test_video_feature_extractor_worker_compliance(tmp_path):
     assert frame_ids[-1] == 14
     assert np.all(np.diff(timestamps) > 0)
 
+
+def test_assert_extraction_invariants_fails_loudly():
+    """Verify assert_extraction_invariants rejects corrupt, non-monotonic, or dimension-deviant features."""
+    from scripts.cloud.extract_features_cloud import (
+        ExtractionInvariantError,
+        assert_extraction_invariants,
+    )
+
+    T = 10
+    valid_feats = np.zeros((T, 26), dtype=np.float32)
+    valid_ts = np.arange(T, dtype=np.float32) * (1.0 / 30.0)
+    valid_ids = np.arange(T, dtype=np.int32)
+
+    # 1. Valid features pass cleanly
+    assert_extraction_invariants(valid_feats, valid_ts, valid_ids, "test_valid")
+
+    # 2. Reject empty recordings (T = 0)
+    with pytest.raises(ExtractionInvariantError, match="Rejected empty recording"):
+        assert_extraction_invariants(
+            np.empty((0, 26), dtype=np.float32),
+            np.empty(0, dtype=np.float32),
+            np.empty(0, dtype=np.int32),
+        )
+
+    # 3. Reject wrong feature dimension (e.g. 25 instead of 26)
+    bad_dim = np.zeros((T, 25), dtype=np.float32)
+    with pytest.raises(ExtractionInvariantError, match="features.shape\\[1\\] must be exactly 26"):
+        assert_extraction_invariants(bad_dim, valid_ts, valid_ids)
+
+    # 4. Reject wrong ndim (e.g. 1D or 3D)
+    with pytest.raises(ExtractionInvariantError, match="features.ndim must be 2"):
+        assert_extraction_invariants(valid_feats[0], valid_ts[:1], valid_ids[:1])
+
+    # 5. Reject wrong dtype (e.g. float64)
+    bad_dtype = valid_feats.astype(np.float64)
+    with pytest.raises(ExtractionInvariantError, match="features.dtype must be float32"):
+        assert_extraction_invariants(bad_dtype, valid_ts, valid_ids)
+
+    # 6. Reject NaN
+    nan_feats = valid_feats.copy()
+    nan_feats[2, 5] = np.nan
+    with pytest.raises(ExtractionInvariantError, match="detected 1 NaN values"):
+        assert_extraction_invariants(nan_feats, valid_ts, valid_ids)
+
+    # 7. Reject Inf
+    inf_feats = valid_feats.copy()
+    inf_feats[4, 2] = np.inf
+    with pytest.raises(ExtractionInvariantError, match="detected 1 Inf values"):
+        assert_extraction_invariants(inf_feats, valid_ts, valid_ids)
+
+    # 8. Reject non-monotonic timestamps (e.g. dt <= 0)
+    bad_ts = valid_ts.copy()
+    bad_ts[3] = bad_ts[2]  # dt = 0
+    with pytest.raises(ExtractionInvariantError, match="non-monotonic timestamps detected"):
+        assert_extraction_invariants(valid_feats, bad_ts, valid_ids)
+
+    bad_ts_reverse = valid_ts.copy()
+    bad_ts_reverse[4] = bad_ts_reverse[3] - 0.01  # time goes backwards
+    with pytest.raises(ExtractionInvariantError, match="non-monotonic timestamps detected"):
+        assert_extraction_invariants(valid_feats, bad_ts_reverse, valid_ids)
+
+
