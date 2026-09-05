@@ -1,11 +1,10 @@
-"""Cloud GPU Feature Extractor: Extracts normalized 26-D physical features from raw video files."""
-
 from __future__ import annotations
 
 import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any
 import cv2
 import numpy as np
 
@@ -15,7 +14,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from astra.activity.features import KinematicFeatureExtractor
-from astra.contracts.perception import DetectedObject, HandLandmark, SceneObservation
 
 
 class VideoFeatureExtractorWorker:

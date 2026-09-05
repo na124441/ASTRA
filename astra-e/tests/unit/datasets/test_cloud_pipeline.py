@@ -78,3 +78,47 @@ def test_feature_sequence_dataset(tmp_path):
     assert item["features"].shape == (30, 26)
     assert item["features"].dtype == torch.float32
     assert item["verb"].item() == 0
+
+
+def test_video_feature_extractor_worker_compliance(tmp_path):
+    """Verify VideoFeatureExtractorWorker satisfies all 10 cloud pipeline requirements."""
+    import cv2
+    from scripts.cloud.extract_features_cloud import VideoFeatureExtractorWorker
+
+    video_path = tmp_path / "test_exp.mp4"
+    out_npz = tmp_path / "test_exp.npz"
+
+    # Write 15 mock frames
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(video_path), fourcc, 30.0, (640, 480))
+    for i in range(15):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        # Red component rectangle
+        cv2.rectangle(frame, (100, 100), (150, 150), (0, 0, 255), -1)
+        writer.write(frame)
+    writer.release()
+
+    worker = VideoFeatureExtractorWorker(frame_width=640.0, frame_height=480.0)
+    res = worker.process_video(video_path, out_npz)
+
+    assert out_npz.exists()
+    assert res["frames"] == 15
+    assert res["shape"] == (15, 26)
+
+    # Load and inspect .npz
+    with np.load(out_npz) as data:
+        assert "features" in data
+        assert "timestamps" in data
+        assert "frame_ids" in data
+        features = data["features"]
+        timestamps = data["timestamps"]
+        frame_ids = data["frame_ids"]
+
+    assert features.shape == (15, 26)
+    assert features.dtype == np.float32
+    assert len(timestamps) == 15
+    assert len(frame_ids) == 15
+    assert frame_ids[0] == 0
+    assert frame_ids[-1] == 14
+    assert np.all(np.diff(timestamps) > 0)
+
