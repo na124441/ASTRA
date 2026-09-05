@@ -161,3 +161,66 @@ FEATURE_PROVENANCE = {
     25: ("conf_yellow", "Yellow tracking confidence", "[0, 1], 0 if occluded/lost"),
 }
 NUM_FEATURES = len(FEATURE_PROVENANCE)  # 26 observable features
+WINDOW_SIZE = 30  # Standard sequence duration (1 second at 30 FPS)
+
+
+class SequenceSample(BaseModel):
+    """
+    Logical sample representation for sequence dataset.
+    Represents a 30-frame historical window of 26-D features with endpoint multi-head targets.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    sequence_id: str = Field(description="Unique window sequence identifier, e.g. EXP001_RUN_001_CAM01_000001")
+    run_id: str = Field(description="Associated run ID, e.g. RUN-0001")
+    subject_id: str = Field(description="Subject / astronaut identifier, e.g. ASTRONAUT-01")
+    video_id: str = Field(description="Source video identifier, e.g. EXP001_RUN_001_CAM01")
+    start_frame: int = Field(description="Start frame index of the 30-frame window")
+    end_frame: int = Field(description="End frame index of the 30-frame window (inclusive)")
+    features: list[list[float]] = Field(description="Temporal feature window of shape [30, 26]")
+    verb: int = Field(description="Integer index for action verb in VERB_VOCAB")
+    object: int = Field(description="Integer index for interacted object in OBJECT_VOCAB")
+    target: int = Field(description="Integer index for target receptacle in TARGET_VOCAB")
+
+
+class SequenceLabel(BaseModel):
+    """
+    Metadata and multi-head target labels for an individual window index in labels.json.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    sample_idx: int = Field(description="0-indexed position within the split's features.npy")
+    sequence_id: str = Field(description="Unique window sequence identifier, e.g. EXP001_RUN_001_CAM01_000001")
+    run_id: str = Field(description="Associated run ID, e.g. RUN-0001")
+    subject_id: str = Field(description="Subject identifier, e.g. ASTRONAUT-01")
+    video_id: str = Field(description="Source video identifier, e.g. EXP001_RUN_001_CAM01")
+    start_frame: int = Field(description="Start frame index")
+    end_frame: int = Field(description="End frame index")
+    verb: int = Field(description="Verb label index")
+    object: int = Field(description="Object label index")
+    target: int = Field(description="Target label index")
+
+
+def export_feature_contract_dict() -> dict[str, Any]:
+    """Generates the standardized feature contract metadata dictionary."""
+    return {
+        "feature_schema_version": "kinematic-26d-v1.0",
+        "num_features": NUM_FEATURES,
+        "window_size": WINDOW_SIZE,
+        "features": [
+            {
+                "index": i,
+                "name": name,
+                "description": desc,
+                "units": units,
+            }
+            for i, (name, desc, units) in sorted(FEATURE_PROVENANCE.items())
+        ],
+        "vocabularies": {
+            "verb": VERB_VOCAB,
+            "object": OBJECT_VOCAB,
+            "target": TARGET_VOCAB,
+            "violations": VIOLATION_VOCAB,
+        },
+    }
+

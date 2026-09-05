@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -130,3 +130,116 @@ def create_feature_dataloaders(
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return train_loader, val_loader, test_loader
+
+
+class MmapFeatureDataset(Dataset):
+    """
+    High-Performance Memory-Mapped Sequence Dataset for the frozen astra-e-features format:
+      features.npy: shape [N, 30, 26] float32
+      labels.json: list of dicts with sequence metadata & multi-head labels
+
+    Zero-copy, near-zero RAM footprint, instant startup time.
+    """
+
+    def __init__(
+        self,
+        split_dir: str | Path,
+        mmap_mode: str = "r",
+        transform: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> None:
+        self.split_dir = Path(split_dir)
+        self.features_file = self.split_dir / "features.npy"
+        self.labels_file = self.split_dir / "labels.json"
+        self.transform = transform
+
+        if not self.features_file.exists():
+            raise FileNotFoundError(f"Missing features.npy in {self.split_dir}")
+        if not self.labels_file.exists():
+            raise FileNotFoundError(f"Missing labels.json in {self.split_dir}")
+
+        # Memory-map the 3D tensor: [N, 30, 26]
+        self.features = np.load(self.features_file, mmap_mode=mmap_mode)
+
+        with open(self.labels_file, "r", encoding="utf-8") as f:
+            self.labels: list[dict[str, Any]] = json.load(f)
+
+        if len(self.features) != len(self.labels):
+            raise ValueError(
+                f"Mismatch in {self.split_dir}: features.npy has {len(self.features)} samples "
+                f"but labels.json has {len(self.labels)} items"
+            )
+
+        # Pre-extract label arrays into contiguous int64 tensors for zero-overhead collation
+        self.verbs = torch.tensor([item["verb"] for item in self.labels], dtype=torch.long)
+        self.objects = torch.tensor([item["object"] for item in self.labels], dtype=torch.long)
+        self.targets = torch.tensor([item["target"] for item in self.labels], dtype=torch.long)
+
+    def __len__(self) -> int:
+        return len(self.features)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        # Window of shape [30, 26]
+        window = np.array(self.features[idx], dtype=np.float32)
+        if self.transform is not None:
+            window = self.transform(window)
+
+        return {
+            "features": torch.from_numpy(window).float(),  # [30, 26]
+            "verb": self.verbs[idx],                       # scalar long
+            "object": self.objects[idx],                   # scalar long
+            "target": self.targets[idx],                   # scalar long
+            "sequence_id": self.labels[idx]["sequence_id"],
+        }
+
+    def to_logical_sample(self, idx: int) -> dict[str, Any]:
+        """
+        Reconstructs the full logical sample schema matching the user specification:
+        {
+          "sequence_id": "EXP001_RUN_001_CAM01_000001",
+          "run_id": "RUN-0001",
+          "subject_id": "ASTRONAUT-01",
+          "video_id": "EXP001_RUN_001_CAM01",
+          "start_frame": 0,
+          "end_frame": 29,
+          "features": [[26 values], "... 30 frames ..."],
+          "verb": 1,
+          "object": 1,
+          "target": 0
+        }
+        """
+        meta = self.labels[idx]
+        feat_window = np.array(self.features[idx], dtype=np.float32).tolist()
+        return {
+            "sequence_id": meta["sequence_id"],
+            "run_id": meta.get("run_id", "RUN-0001"),
+            "subject_id": meta.get("subject_id", "ASTRONAUT-01"),
+            "video_id": meta.get("video_id", "EXP001_RUN_001_CAM01"),
+            "start_frame": int(meta.get("start_frame", 0)),
+            "end_frame": int(meta.get("end_frame", 29)),
+            "features": feat_window,
+            "verb": int(meta["verb"]),
+            "object": int(meta["object"]),
+            "target": int(meta["target"]),
+        }
+
+
+def create_mmap_dataloaders(
+    dataset_dir: str | Path,
+    batch_size: int = 32,
+    num_workers: int = 0,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Factory creating PyTorch DataLoaders for train, validation, and test splits
+    from the packed astra-e-features layout.
+    """
+    base_dir = Path(dataset_dir)
+    train_ds = MmapFeatureDataset(base_dir / "train")
+    val_ds = MmapFeatureDataset(base_dir / "validation")
+    test_ds = MmapFeatureDataset(base_dir / "test")
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    return train_loader, val_loader, test_loader
+
