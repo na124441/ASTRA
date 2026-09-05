@@ -69,27 +69,85 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+from fastapi.responses import HTMLResponse
+
+try:
+    from .embedded_static import INDEX_HTML, STYLE_CSS, APP_JS, MANIFEST_JSON
+except ImportError:
+    INDEX_HTML = "<h1>ASTRA Collector</h1><p>Initializing...</p>"
+    STYLE_CSS = ""
+    APP_JS = ""
+    MANIFEST_JSON = "{}"
+
+
 @app.get("/")
 @app.get("/collector")
+@app.get("/api")
+@app.get("/api/")
+@app.get("/api/index")
 @app.get("/api/index.py")
 @app.get("/api/index.py/collector")
-def get_collector_webapp() -> FileResponse:
+def get_collector_webapp() -> Response:
     """Serve the ASTRA Collector mobile web application."""
+    # Check if local static file exists first (for local live reload)
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(str(index_file))
-    
-    # Fallback search paths in serverless bundles
-    fallback_paths = [
-        Path("/var/task/apps/upload_api/static/index.html"),
-        Path(__file__).resolve().parent.parent.parent / "apps" / "upload_api" / "static" / "index.html",
-        Path("apps/upload_api/static/index.html"),
-    ]
-    for p in fallback_paths:
-        if p.exists():
-            return FileResponse(str(p))
+        try:
+            return HTMLResponse(content=index_file.read_text(encoding="utf-8"), status_code=200)
+        except Exception:
+            pass
+    return HTMLResponse(content=INDEX_HTML, status_code=200)
 
-    raise HTTPException(status_code=404, detail="Web application static files not found.")
+
+@app.get("/static/style.css")
+@app.get("/api/index.py/static/style.css")
+def get_style_css() -> Response:
+    """Serve style.css directly from memory or disk."""
+    css_file = STATIC_DIR / "style.css"
+    if css_file.exists():
+        try:
+            return Response(content=css_file.read_text(encoding="utf-8"), media_type="text/css")
+        except Exception:
+            pass
+    return Response(content=STYLE_CSS, media_type="text/css")
+
+
+@app.get("/static/app.js")
+@app.get("/api/index.py/static/app.js")
+def get_app_js() -> Response:
+    """Serve app.js directly from memory or disk."""
+    js_file = STATIC_DIR / "app.js"
+    if js_file.exists():
+        try:
+            return Response(content=js_file.read_text(encoding="utf-8"), media_type="application/javascript")
+        except Exception:
+            pass
+    return Response(content=APP_JS, media_type="application/javascript")
+
+
+@app.get("/static/manifest.json")
+@app.get("/api/index.py/static/manifest.json")
+def get_manifest_json() -> Response:
+    """Serve manifest.json directly from memory or disk."""
+    manifest_file = STATIC_DIR / "manifest.json"
+    if manifest_file.exists():
+        try:
+            return Response(content=manifest_file.read_text(encoding="utf-8"), media_type="application/json")
+        except Exception:
+            pass
+    return Response(content=MANIFEST_JSON, media_type="application/json")
+
+
+@app.get("/debug")
+@app.get("/api/debug")
+def get_debug_info(request: Request) -> dict[str, Any]:
+    """Diagnostic endpoint to inspect Vercel routing scope and headers."""
+    return {
+        "scope_path": request.scope.get("path"),
+        "headers": dict(request.headers),
+        "client": request.client.host if request.client else None,
+    }
+
 
 
 
@@ -293,3 +351,16 @@ def revoke_collector_device(
 def health_check() -> dict[str, str]:
     """Service health check."""
     return {"status": "healthy", "service": "ASTRA Collector Upload Service"}
+
+
+@app.get("/{full_path:path}")
+def fallback_catch_all(full_path: str) -> Response:
+    """Fallback handler ensuring no page route ever returns 404."""
+    if full_path.endswith("style.css"):
+        return Response(content=STYLE_CSS, media_type="text/css")
+    if full_path.endswith("app.js"):
+        return Response(content=APP_JS, media_type="application/javascript")
+    if full_path.endswith("manifest.json"):
+        return Response(content=MANIFEST_JSON, media_type="application/json")
+    return HTMLResponse(content=INDEX_HTML, status_code=200)
+
