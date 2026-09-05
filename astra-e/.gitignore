@@ -48,7 +48,10 @@ Thumbs.db
 # ASTRA Local Data & Runs
 data/recordings/*
 data/runs/*
+data/cloud/*
 !data/recordings/.gitkeep
 !data/runs/.gitkeep
+!data/cloud/.gitkeep
 logs/*
 !logs/.gitkeep
+
