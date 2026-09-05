@@ -57,6 +57,12 @@ class KinematicFeatureExtractor:
         """
         Extract normalized 26-D feature vector from a single SceneObservation.
         """
+        return self.extract(obs)
+
+    def extract(self, obs: SceneObservation) -> np.ndarray:
+        """
+        Extract normalized 26-D feature vector from a single SceneObservation.
+        """
         t = obs.event_time
         dt = 1.0 / 30.0
         if self._prev_time is not None and t > self._prev_time:
