@@ -62,3 +62,53 @@ def test_distance_derivatives():
     # Feature 17 is d_dot_hand_red. As hand approaches, distance decreases -> derivative must be negative!
     d_dot_hand_red = feat2[17]
     assert d_dot_hand_red < 0.0
+
+
+def test_reset_clears_all_state_and_cached_positions():
+    """Verify reset() restores both temporal derivatives and cached occlusion positions."""
+    extractor = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+
+    # Mutate state with an observation
+    obs = SceneObservation(
+        source="test",
+        correlation_id="RUN-TEST",
+        camera_id="CAM-1",
+        hands=[HandLandmark(id="h1", owner_id="u1", position=[10.0, 20.0], confidence=0.8)],
+        objects=[
+            DetectedObject(id="o1", type="RED_COMPONENT", bbox=[30.0, 30.0, 50.0, 50.0], confidence=0.9),
+            DetectedObject(id="o2", type="YELLOW_COMPONENT", bbox=[60.0, 60.0, 80.0, 80.0], confidence=0.9),
+        ],
+    )
+    _ = extractor.extract(obs)
+    assert extractor._last_hand_pos == [10.0, 20.0]
+
+    # Reset
+    extractor.reset()
+    assert extractor._prev_time is None
+    assert extractor._prev_dist_hand_red is None
+    assert extractor._last_hand_pos == [640.0 * 0.8, 480.0 * 0.8]
+    assert extractor._last_red_pos == [640.0 * 0.25, 480.0 * 0.5]
+    assert extractor._last_yellow_pos == [640.0 * 0.35, 480.0 * 0.6]
+
+
+def test_extract_from_detector_dict_parity():
+    """Verify single production KinematicFeatureExtractor handles YOLO/MediaPipe dicts identically."""
+    extractor = KinematicFeatureExtractor(frame_width=640.0, frame_height=480.0)
+
+    detections = {
+        "hand": {"pos": [320.0, 240.0], "conf": 0.95},
+        "red": {"pos": [120.0, 120.0], "conf": 0.98},
+        "yellow": {"pos": [220.0, 220.0], "conf": 0.97},
+        "container": {"pos": [180.0, 280.0]},
+        "target_a": {"pos": [460.0, 150.0]},
+        "target_b": {"pos": [460.0, 310.0]},
+    }
+
+    feat = extractor.extract(detections, event_time=0.0)
+    assert isinstance(feat, np.ndarray)
+    assert feat.shape == (26,)
+    assert feat[0] == pytest.approx(320.0 / 640.0)
+    assert feat[1] == pytest.approx(240.0 / 480.0)
+    assert feat[23] == 0.95  # conf_hand
+    assert feat[24] == 0.98  # conf_red
+    assert feat[25] == 0.97  # conf_yellow

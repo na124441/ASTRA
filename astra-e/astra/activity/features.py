@@ -45,7 +45,7 @@ class KinematicFeatureExtractor:
         self._last_yellow_pos: list[float] = [frame_width * 0.35, frame_height * 0.6]
 
     def reset(self) -> None:
-        """Reset internal history for a new run."""
+        """Reset internal history and cached positions for a new run."""
         self._prev_time = None
         self._prev_dist_hand_red = None
         self._prev_dist_hand_yellow = None
@@ -53,17 +53,26 @@ class KinematicFeatureExtractor:
         self._prev_dist_yellow_tgtB = None
         self._prev_dist_hand_cnt = None
 
-    def extract_frame_features(self, obs: SceneObservation) -> np.ndarray:
+        self._last_hand_pos = [self.width * 0.8, self.height * 0.8]
+        self._last_red_pos = [self.width * 0.25, self.height * 0.5]
+        self._last_yellow_pos = [self.width * 0.35, self.height * 0.6]
+
+    def extract_frame_features(self, obs: SceneObservation | dict[str, Any]) -> np.ndarray:
         """
-        Extract normalized 26-D feature vector from a single SceneObservation.
+        Extract normalized 26-D feature vector from a single SceneObservation or detector dictionary.
         """
         return self.extract(obs)
 
-    def extract(self, obs: SceneObservation) -> np.ndarray:
+    def extract(self, obs: SceneObservation | dict[str, Any], event_time: float | None = None) -> np.ndarray:
         """
-        Extract normalized 26-D feature vector from a single SceneObservation.
+        Extract normalized 26-D feature vector from a single SceneObservation or detector dictionary.
+        Identical mathematical implementation used across both synthetic simulation and real-video processing.
         """
-        t = obs.event_time
+        if isinstance(obs, dict):
+            t = event_time if event_time is not None else float(obs.get("event_time", time.time()))
+        else:
+            t = obs.event_time
+
         dt = 1.0 / 30.0
         if self._prev_time is not None and t > self._prev_time:
             dt = max(0.001, t - self._prev_time)
@@ -74,13 +83,41 @@ class KinematicFeatureExtractor:
         hand_pos = list(self._last_hand_pos)
         hand_vx, hand_vy = 0.0, 0.0
 
-        if obs.hands:
-            h = obs.hands[0]
-            hand_pos = [float(h.position[0]), float(h.position[1])]
-            hand_conf = float(h.confidence)
-            hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
-            hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
-            self._last_hand_pos = list(hand_pos)
+        if isinstance(obs, dict):
+            # Dict input from YOLO + MediaPipe in cloud / Colab pipeline
+            if "hand" in obs and obs["hand"]:
+                h = obs["hand"]
+                if isinstance(h, dict):
+                    pos = h.get("pos") or h.get("position") or [0.0, 0.0]
+                    hand_pos = [float(pos[0]), float(pos[1])]
+                    hand_conf = float(h.get("conf", h.get("confidence", 1.0)))
+                elif isinstance(h, (list, tuple)):
+                    hand_pos = [float(h[0]), float(h[1])]
+                    hand_conf = 1.0
+                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
+                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
+                self._last_hand_pos = list(hand_pos)
+            elif "hands" in obs and obs["hands"]:
+                h = obs["hands"][0]
+                if isinstance(h, dict):
+                    pos = h.get("pos") or h.get("position") or [0.0, 0.0]
+                    hand_pos = [float(pos[0]), float(pos[1])]
+                    hand_conf = float(h.get("conf", h.get("confidence", 1.0)))
+                else:
+                    hand_pos = [float(h.position[0]), float(h.position[1])]
+                    hand_conf = float(h.confidence)
+                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
+                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
+                self._last_hand_pos = list(hand_pos)
+        else:
+            # SceneObservation contract input in local edge runtime
+            if obs.hands:
+                h = obs.hands[0]
+                hand_pos = [float(h.position[0]), float(h.position[1])]
+                hand_conf = float(h.confidence)
+                hand_vx = (hand_pos[0] - self._last_hand_pos[0]) / dt
+                hand_vy = (hand_pos[1] - self._last_hand_pos[1]) / dt
+                self._last_hand_pos = list(hand_pos)
 
         # 2. Parse Objects
         red_conf, yellow_conf = 0.0, 0.0
@@ -93,26 +130,87 @@ class KinematicFeatureExtractor:
         target_b_pos = [self.width * 0.72, self.height * 0.65]
         container_pos = [self.width * 0.28, self.height * 0.58]
 
-        for obj in obs.objects:
-            c = bbox_centroid(obj.bbox)
-            if "RED" in obj.type.upper():
-                red_conf = float(obj.confidence)
-                red_vx = (c[0] - self._last_red_pos[0]) / dt
-                red_vy = (c[1] - self._last_red_pos[1]) / dt
-                red_pos = list(c)
+        if isinstance(obs, dict):
+            # Parse direct entity keys if present
+            if "red" in obs and obs["red"]:
+                r = obs["red"]
+                c = r.get("pos") if isinstance(r, dict) else r
+                red_pos = [float(c[0]), float(c[1])]
+                red_conf = float(r.get("conf", 1.0)) if isinstance(r, dict) else 1.0
+                red_vx = (red_pos[0] - self._last_red_pos[0]) / dt
+                red_vy = (red_pos[1] - self._last_red_pos[1]) / dt
                 self._last_red_pos = list(red_pos)
-            elif "YELLOW" in obj.type.upper():
-                yellow_conf = float(obj.confidence)
-                yellow_vx = (c[0] - self._last_yellow_pos[0]) / dt
-                yellow_vy = (c[1] - self._last_yellow_pos[1]) / dt
-                yellow_pos = list(c)
+            if "yellow" in obs and obs["yellow"]:
+                y = obs["yellow"]
+                c = y.get("pos") if isinstance(y, dict) else y
+                yellow_pos = [float(c[0]), float(c[1])]
+                yellow_conf = float(y.get("conf", 1.0)) if isinstance(y, dict) else 1.0
+                yellow_vx = (yellow_pos[0] - self._last_yellow_pos[0]) / dt
+                yellow_vy = (yellow_pos[1] - self._last_yellow_pos[1]) / dt
                 self._last_yellow_pos = list(yellow_pos)
-            elif "TARGET_A" in obj.type.upper():
-                target_a_pos = list(c)
-            elif "TARGET_B" in obj.type.upper():
-                target_b_pos = list(c)
-            elif "CONTAINER" in obj.type.upper():
-                container_pos = list(c)
+            if "target_a" in obs and obs["target_a"]:
+                t_a = obs["target_a"]
+                c = t_a.get("pos") if isinstance(t_a, dict) else t_a
+                target_a_pos = [float(c[0]), float(c[1])]
+            if "target_b" in obs and obs["target_b"]:
+                t_b = obs["target_b"]
+                c = t_b.get("pos") if isinstance(t_b, dict) else t_b
+                target_b_pos = [float(c[0]), float(c[1])]
+            if "container" in obs and obs["container"]:
+                cnt = obs["container"]
+                c = cnt.get("pos") if isinstance(cnt, dict) else cnt
+                container_pos = [float(c[0]), float(c[1])]
+
+            # Also parse list of objects if formatted as obs["objects"]
+            if "objects" in obs and isinstance(obs["objects"], list):
+                for obj in obs["objects"]:
+                    obj_type = obj.get("type", "").upper() if isinstance(obj, dict) else getattr(obj, "type", "").upper()
+                    raw_c = obj.get("pos") if isinstance(obj, dict) else None
+                    if raw_c is None:
+                        bbox = obj.get("bbox") if isinstance(obj, dict) else getattr(obj, "bbox", None)
+                        c = bbox_centroid(bbox) if bbox else [0.0, 0.0]
+                    else:
+                        c = raw_c
+                    conf = float(obj.get("confidence", 1.0)) if isinstance(obj, dict) else float(getattr(obj, "confidence", 1.0))
+                    if "RED" in obj_type:
+                        red_conf = conf
+                        red_vx = (c[0] - self._last_red_pos[0]) / dt
+                        red_vy = (c[1] - self._last_red_pos[1]) / dt
+                        red_pos = list(c)
+                        self._last_red_pos = list(red_pos)
+                    elif "YELLOW" in obj_type:
+                        yellow_conf = conf
+                        yellow_vx = (c[0] - self._last_yellow_pos[0]) / dt
+                        yellow_vy = (c[1] - self._last_yellow_pos[1]) / dt
+                        yellow_pos = list(c)
+                        self._last_yellow_pos = list(yellow_pos)
+                    elif "TARGET_A" in obj_type:
+                        target_a_pos = list(c)
+                    elif "TARGET_B" in obj_type:
+                        target_b_pos = list(c)
+                    elif "CONTAINER" in obj_type:
+                        container_pos = list(c)
+        else:
+            for obj in obs.objects:
+                c = bbox_centroid(obj.bbox)
+                if "RED" in obj.type.upper():
+                    red_conf = float(obj.confidence)
+                    red_vx = (c[0] - self._last_red_pos[0]) / dt
+                    red_vy = (c[1] - self._last_red_pos[1]) / dt
+                    red_pos = list(c)
+                    self._last_red_pos = list(red_pos)
+                elif "YELLOW" in obj.type.upper():
+                    yellow_conf = float(obj.confidence)
+                    yellow_vx = (c[0] - self._last_yellow_pos[0]) / dt
+                    yellow_vy = (c[1] - self._last_yellow_pos[1]) / dt
+                    yellow_pos = list(c)
+                    self._last_yellow_pos = list(yellow_pos)
+                elif "TARGET_A" in obj.type.upper():
+                    target_a_pos = list(c)
+                elif "TARGET_B" in obj.type.upper():
+                    target_b_pos = list(c)
+                elif "CONTAINER" in obj.type.upper():
+                    container_pos = list(c)
 
         # 3. Calculate Normalized Euclidean Distances
         d_h_r = euclidean_distance(hand_pos, red_pos) / self.diag
@@ -147,16 +245,16 @@ class KinematicFeatureExtractor:
         features = np.array([
             hand_pos[0] / self.width,          # 0: hand_x
             hand_pos[1] / self.height,         # 1: hand_y
-            hand_vx / self.width,              # 2: hand_vx
-            hand_vy / self.height,             # 3: hand_vy
+            hand_vx / self.width,              # 2: hand_vx (normalized velocity, 1/sec)
+            hand_vy / self.height,             # 3: hand_vy (normalized velocity, 1/sec)
             red_pos[0] / self.width,           # 4: red_x
             red_pos[1] / self.height,          # 5: red_y
-            red_vx / self.width,               # 6: red_vx
-            red_vy / self.height,              # 7: red_vy
+            red_vx / self.width,               # 6: red_vx (normalized velocity, 1/sec)
+            red_vy / self.height,              # 7: red_vy (normalized velocity, 1/sec)
             yellow_pos[0] / self.width,        # 8: yellow_x
             yellow_pos[1] / self.height,       # 9: yellow_y
-            yellow_vx / self.width,            # 10: yellow_vx
-            yellow_vy / self.height,           # 11: yellow_vy
+            yellow_vx / self.width,            # 10: yellow_vx (normalized velocity, 1/sec)
+            yellow_vy / self.height,           # 11: yellow_vy (normalized velocity, 1/sec)
             d_h_r,                             # 12: dist_hand_red
             d_h_y,                             # 13: dist_hand_yellow
             d_r_tgtA,                          # 14: dist_red_tgtA
