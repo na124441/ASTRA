@@ -1,0 +1,12 @@
+{
+  "recording_id": "REC-RUN-0025",
+  "experiment_id": "EXP-001",
+  "run_id": "RUN-0025",
+  "duration_seconds": 8.8,
+  "fps": 30.0,
+  "width": 640,
+  "height": 480,
+  "scenario_type": "hesitation",
+  "random_seed": 42,
+  "segments": []
+}

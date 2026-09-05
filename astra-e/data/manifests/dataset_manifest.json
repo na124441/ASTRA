@@ -1,0 +1,52 @@
+{
+  "dataset_version": "2026.09.01",
+  "generator_version": "1.0.0",
+  "feature_schema_version": "kinematic-26d-v1.0",
+  "random_seed": 42,
+  "recordings_count": 25,
+  "total_windows": 5543,
+  "splits": {
+    "train": [
+      "RUN-0001",
+      "RUN-0002",
+      "RUN-0005",
+      "RUN-0006",
+      "RUN-0007",
+      "RUN-0009",
+      "RUN-0010",
+      "RUN-0012",
+      "RUN-0014",
+      "RUN-0015",
+      "RUN-0016",
+      "RUN-0017",
+      "RUN-0018",
+      "RUN-0022",
+      "RUN-0023",
+      "RUN-0024",
+      "RUN-0025"
+    ],
+    "val": [
+      "RUN-0004",
+      "RUN-0011",
+      "RUN-0021"
+    ],
+    "test": [
+      "RUN-0003",
+      "RUN-0008",
+      "RUN-0013",
+      "RUN-0019",
+      "RUN-0020"
+    ]
+  },
+  "created_at": 1788613389.5110435,
+  "metadata": {
+    "dropout_prob": 0.05,
+    "scenarios": [
+      "nominal",
+      "nominal",
+      "wrong_target",
+      "wrong_object",
+      "hesitation"
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "model_id": "ASTRA-ACTIVITY-CAUSAL-LSTM",
+  "model_version": "activity-causal-lstm-v1.0",
+  "architecture": "2-layer Causal Unidirectional LSTM (hidden=64)",
+  "input_shape": [
+    30,
+    26
+  ],
+  "sample_rate_hz": 30.0,
+  "window_seconds": 1.0,
+  "feature_schema_version": "kinematic-26d-v1.0",
+  "heads": {
+    "verb": {
+      "classes": 11,
+      "vocab": [
+        "IDLE",
+        "APPROACH",
+        "TOUCH",
+        "GRASP",
+        "PICK",
+        "MOVE",
+        "PLACE",
+        "RELEASE",
+        "OPEN_CONTAINER",
+        "CLOSE_CONTAINER",
+        "UNKNOWN"
+      ]
+    },
+    "object": {
+      "classes": 5,
+      "vocab": [
+        "NONE",
+        "RED_COMPONENT",
+        "YELLOW_COMPONENT",
+        "CONTAINER",
+        "UNKNOWN"
+      ]
+    },
+    "target": {
+      "classes": 5,
+      "vocab": [
+        "NONE",
+        "TARGET_A",
+        "TARGET_B",
+        "CONTAINER",
+        "UNKNOWN"
+      ]
+    }
+  },
+  "calibration": {
+    "method": "temperature_scaling",
+    "temperatures": {
+      "T_verb": 0.9708680510520935,
+      "T_object": 0.946590781211853,
+      "T_target": 0.7947880625724792
+    }
+  },
+  "metrics": {
+    "baseline_test_accuracy": 0.8881317433276549,
+    "lstm_test_accuracy": 0.9105621805792165,
+    "lstm_test_verb_acc": 0.9710391822827938,
+    "ece_calibrated_verb": 0.05089777708053589,
+    "latency": {
+      "latency_p50_ms": 0.817,
+      "latency_p95_ms": 1.439,
+      "latency_p99_ms": 1.667,
+      "mean_latency_ms": 0.959
+    }
+  },
+  "git_commit": "ebe757c",
+  "pytorch_version": "2.10.0+cpu",
+  "created_at": 1788613654.9394746,
+  "operational_constraints": {
+    "offline_required": true,
+    "max_tolerated_latency_ms": 50.0,
+    "causal_guarantee": true
+  }
+}

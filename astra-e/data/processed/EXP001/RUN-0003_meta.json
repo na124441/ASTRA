@@ -1,0 +1,12 @@
+{
+  "recording_id": "REC-RUN-0003",
+  "experiment_id": "EXP-001",
+  "run_id": "RUN-0003",
+  "duration_seconds": 9.1,
+  "fps": 30.0,
+  "width": 640,
+  "height": 480,
+  "scenario_type": "wrong_target",
+  "random_seed": 42,
+  "segments": []
+}
