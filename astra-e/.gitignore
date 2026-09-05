@@ -52,6 +52,8 @@ data/cloud/*
 !data/recordings/.gitkeep
 !data/runs/.gitkeep
 !data/cloud/.gitkeep
-logs/*
-!logs/.gitkeep
-
+# Android & Gradle
+.gradle/
+**/local.properties
+**/build/
+*.hprof

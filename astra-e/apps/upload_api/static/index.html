@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>ASTRA Collector — Experimental Data Terminal</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app-container">
+
+    <!-- Top Status Bar -->
+    <header id="top-bar">
+      <div class="brand">
+        <span class="brand-title">ASTRA COLLECTOR</span>
+        <span class="brand-sub">BAS • SIH 26174</span>
+      </div>
+      <div id="connection-pill" class="badge badge-dim">OFFLINE</div>
+    </header>
+
+    <!-- SCREEN 1: CONNECT -->
+    <section id="screen-connect" class="screen active">
+      <div class="card terminal-card">
+        <div class="terminal-header">
+          <h2>COLLECTOR LOGIN</h2>
+          <p class="subtitle">Authenticate terminal to receive experiment runs</p>
+        </div>
+
+        <div class="form-group">
+          <label for="input-server-url">Upload API Server URL</label>
+          <input type="text" id="input-server-url" value="" placeholder="http://192.168.1.x:8000">
+        </div>
+
+        <div class="form-group">
+          <label for="input-collector-id">Synthesizer Collector ID</label>
+          <input type="text" id="input-collector-id" value="COL-007" placeholder="e.g. COL-001">
+        </div>
+
+        <div id="connect-error" class="error-banner hidden"></div>
+
+        <button id="btn-connect" class="btn btn-primary">
+          <span>CONNECT TERMINAL</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: TASK ASSIGNMENT -->
+    <section id="screen-task" class="screen">
+      <div class="task-summary-card">
+        <div class="task-meta-row">
+          <div>
+            <h2 id="task-run-title">EXP001 • RUN-0042</h2>
+            <p id="task-camera-sub" class="subtitle">Camera: CAM-01 (1080p Landscape)</p>
+          </div>
+          <span id="task-scenario-badge" class="badge badge-nominal">NOMINAL</span>
+        </div>
+
+        <div class="parameters-grid">
+          <div class="param-box">
+            <span class="param-label">REQUIRED OBJECT</span>
+            <span id="task-obj-val" class="param-val">RED_COMPONENT</span>
+          </div>
+          <div class="param-box">
+            <span class="param-label">TARGET LOCATION</span>
+            <span id="task-tgt-val" class="param-val">TARGET_A</span>
+          </div>
+          <div class="param-box">
+            <span class="param-label">DURATION BOUNDS</span>
+            <span id="task-dur-val" class="param-val">30–60s</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card procedure-card">
+        <div class="section-title">
+          <span>PROCEDURE PROTOCOL (<span id="task-proto-ver">EXP001-v1.0</span>)</span>
+        </div>
+        <ol id="task-steps-list" class="steps-list">
+          <!-- Populated dynamically -->
+        </ol>
+      </div>
+
+      <div class="bottom-action-bar">
+        <button id="btn-start-recording" class="btn btn-primary btn-cta">
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+          <span>START RECORDING</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: CAMERA RECORDING -->
+    <section id="screen-camera" class="screen">
+      <div class="viewfinder-wrapper">
+        <video id="viewfinder" autoplay playsinline muted></video>
+        
+        <!-- Camera HUD Overlays -->
+        <div class="camera-hud-top">
+          <div class="hud-pill" id="hud-task-tag">EXP001 • RUN-0042 • CAM-01</div>
+          <div class="rec-pill">
+            <span class="rec-dot"></span>
+            <span id="rec-timer">REC 00:00</span>
+          </div>
+        </div>
+
+        <div class="camera-hud-bottom">
+          <button id="btn-stop-recording" class="btn btn-danger btn-rec-stop">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+            <span>STOP RECORDING</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 4: REVIEW & VALIDATE -->
+    <section id="screen-review" class="screen">
+      <div class="card review-card">
+        <h2>RECORDING VALIDATION</h2>
+        <p id="review-task-sub" class="subtitle">EXP001 • RUN-0042 • CAM-01</p>
+
+        <div class="video-preview-box">
+          <video id="review-player" controls playsinline></video>
+        </div>
+
+        <div class="validation-checklist">
+          <div class="check-item" id="check-duration">
+            <div class="check-text">
+              <span class="check-title">DURATION</span>
+              <span id="val-duration" class="check-sub">Calculating...</span>
+            </div>
+            <span id="icon-duration" class="check-status">✓</span>
+          </div>
+
+          <div class="check-item">
+            <div class="check-text">
+              <span class="check-title">RESOLUTION & FRAMING</span>
+              <span class="check-sub">1080p Landscape Viewport</span>
+            </div>
+            <span class="check-status check-ok">✓</span>
+          </div>
+
+          <div class="check-item">
+            <div class="check-text">
+              <span class="check-title">FILE SIZE</span>
+              <span id="val-file-size" class="check-sub">Calculating...</span>
+            </div>
+            <span class="check-status check-ok">✓</span>
+          </div>
+
+          <div class="check-item check-column">
+            <span class="check-title">CRYPTOGRAPHIC SHA-256 DIGEST</span>
+            <span id="val-sha256" class="hash-display">Computing streaming hash...</span>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button id="btn-rerecord" class="btn btn-secondary">
+            <span>RE-RECORD</span>
+          </button>
+          <button id="btn-upload" class="btn btn-primary" disabled>
+            <span>UPLOAD TO CLOUD</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 5: UPLOAD PROGRESS -->
+    <section id="screen-upload" class="screen">
+      <div class="card upload-card">
+        <div class="upload-header">
+          <div id="upload-status-icon" class="status-icon-box">☁</div>
+          <h2 id="upload-status-title">STREAMING CHUNKS...</h2>
+          <p id="upload-task-sub" class="subtitle">EXP001 • RUN-0042</p>
+        </div>
+
+        <div class="progress-container">
+          <div class="progress-bar-track">
+            <div id="upload-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="upload-progress-chunk">Chunk 0 of 0</span>
+            <span id="upload-progress-percent">0%</span>
+          </div>
+        </div>
+
+        <div id="upload-error-box" class="error-banner hidden">
+          <span id="upload-error-msg">Upload failed.</span>
+          <p class="safe-note">Local recording is safely retained in temporary browser storage.</p>
+        </div>
+
+        <button id="btn-retry-upload" class="btn btn-primary hidden">
+          <span>RETRY UPLOAD</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- SCREEN 6: COMPLETION -->
+    <section id="screen-complete" class="screen">
+      <div class="card complete-card">
+        <div class="complete-badge">✓</div>
+        <h2>DATASET UPLOAD VERIFIED</h2>
+        <p id="complete-task-sub" class="subtitle">RUN-0042 (CAM-01) Complete</p>
+
+        <div class="verified-box">
+          <span class="box-label">REMOTE HUGGING FACE TARGET</span>
+          <span id="complete-remote-path" class="remote-path-val">videos/exp001/RUN-0042/CAM-01.mp4</span>
+        </div>
+
+        <div class="cleanup-box">
+          <span class="cleanup-icon">🗑</span>
+          <div class="cleanup-info">
+            <span class="box-label">LOCAL TEMPORARY STORAGE</span>
+            <span class="cleanup-status">IndexedDB cache verified clean & purged</span>
+          </div>
+        </div>
+
+        <button id="btn-next-task" class="btn btn-primary btn-cta">
+          <span>DISPENSE NEXT TASK →</span>
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

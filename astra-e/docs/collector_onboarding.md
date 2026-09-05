@@ -1,42 +1,40 @@
 # ASTRA Collector — Synthesizer Operator Onboarding Guide
 
 ## Overview
-**ASTRA Collector** is the standardized data collection terminal for ASTRA-E (Autonomous Space Task Recognition & Assistance for Experiments), designed for the Bhartiya Antariksh Station (BAS / SIH 26174).
+**ASTRA Collector** is the standardized mobile data collection terminal for ASTRA-E (Autonomous Space Task Recognition & Assistance for Experiments), designed for the Bhartiya Antariksh Station (BAS / SIH 26174).
 
-Instead of requiring manual file transfers, renaming, and local disk management, ASTRA Collector turns your phone into a guided recording terminal:
-1. Displays assigned experiment task (`EXP001`).
-2. Guides procedure execution step-by-step.
-3. Records standardized 1080p landscape video at 30 FPS.
-4. Validates execution duration and metrics.
-5. Computes cryptographic SHA-256 checksums.
-6. Streams resumable chunks directly to the private dataset backend.
-7. Automatically deletes local recordings **only after remote persistence is cryptographically verified**.
+It operates as a **zero-install Progressive Web Application (PWA)** served directly by the ASTRA Upload API service. Synthesizers open a URL in their phone's browser, record experimental procedures, and the app automatically uploads the video and metadata directly into our private Hugging Face Dataset repository (`na124441/astra-e-raw`).
 
 ---
 
-## 1. Installation & Initial Setup
+## 1. Zero-Install Launch (Phone Browser)
 
-1. **Download the APK**: Obtain `astra-collector-release.apk` from your research lead.
-2. **Install**: Open the APK file on your Android device (Android 8.0+ / API 26 or higher).
-3. **Permissions**: When prompted, grant:
-   - **Camera**: Required for procedure capture.
-   - **Microphone**: Required for audio recording.
-   - **Network**: Required for authenticated upload.
-4. **Launch**: Open **ASTRA Collector** from your app drawer.
+1. **Connect to Wi-Fi**: Connect your phone (Android or iPhone) to the same Wi-Fi network as the collection server.
+2. **Open the Terminal URL**: In Chrome, Safari, or Firefox, navigate to:
+   ```text
+   http://<SERVER_IP>:8000/collector
+   ```
+   *(e.g., `http://192.168.1.15:8000/collector` or your hosted domain)*.
+3. **Add to Home Screen (Optional & Recommended)**:
+   - **Android (Chrome)**: Tap the three dots (⋮) -> **Install app** or **Add to Home screen**.
+   - **iOS (Safari)**: Tap the Share button -> **Add to Home Screen**.
+   - The app now launches full-screen without any browser address bar.
+4. **Grant Permissions**:
+   - When prompted, tap **Allow** for **Camera** and **Microphone**.
 
 ---
 
-## 2. Connecting to the Collection Backend
+## 2. Connecting & Fetching Tasks
 
-On the first screen:
-1. **Server URL**: Enter the provided backend endpoint (e.g., `https://astra-upload.internal.org` or local network address `http://192.168.1.100:8000`).
-2. **Collector ID**: Enter your assigned collector identifier (e.g., `COL-001`, `COL-007`).
+On the **Collector Login** screen:
+1. **Server URL**: Defaults automatically to the current server origin.
+2. **Collector ID**: Enter your assigned synthesizer identifier (e.g., `COL-001`, `COL-007`).
 3. Tap **CONNECT TERMINAL**.
-4. The app authenticates your device and fetches your first assigned experimental recording task.
+4. The terminal registers your device and immediately dispenses your next assigned experimental task (`EXP001`).
 
 ---
 
-## 3. Recording Standards & Rigor
+## 3. Recording Standards & Protocol Rigor
 
 To ensure pristine training data for our 26-D kinematic feature extractor:
 
@@ -51,7 +49,7 @@ To ensure pristine training data for our 26-D kinematic feature extractor:
   - The astronaut / operator's hand and both objects must be clearly visible in frame throughout the entire procedure.
 - **Duration Bounds**:
   - Standard procedure duration is **30 to 60 seconds**.
-  - Review screen will alert you if recording is too short or too long.
+  - The review screen automatically validates if the recording satisfies duration constraints.
 
 ---
 
@@ -73,15 +71,17 @@ To ensure pristine training data for our 26-D kinematic feature extractor:
 │ 3. Tap [STOP RECORDING]                                │
 │                                                        │
 │ 4. Review Screen                                       │
+│    - Preview video playback                            │
 │    - Verify duration, resolution (1920x1080)           │
-│    - Wait for SHA-256 checksum generation              │
-│    - Tap [UPLOAD]                                      │
+│    - Wait for Web Crypto SHA-256 checksum generation   │
+│    - Tap [UPLOAD TO CLOUD]                             │
 │                                                        │
-│ 5. Uploading & Verifying                               │
+│ 5. Resumable Chunk Streaming                           │
 │    - 8 MB chunks streamed to backend                   │
-│    - Server verifies hash & commits to Hugging Face    │
+│    - Backend reassembles file and validates SHA-256    │
+│    - Server commits video + metadata to Hugging Face   │
 │    - Green badge: DATASET UPLOAD VERIFIED              │
-│    - Local temporary MP4 automatically deleted         │
+│    - Local IndexedDB storage automatically cleaned     │
 │                                                        │
 │ 6. Tap [DISPENSE NEXT TASK]                            │
 └────────────────────────────────────────────────────────┘
@@ -92,6 +92,7 @@ To ensure pristine training data for our 26-D kinematic feature extractor:
 ## 5. Critical Fail-Closed Safety
 
 > [!IMPORTANT]
-> **Your data is safe**: If your network connection drops or the app is closed during an upload, **the local video is never deleted**. The background WorkManager will automatically resume chunk streaming once connectivity is restored.
+> **No Verified Remote Upload $\implies$ No Local Delete**:
+> When a recording finishes, the video blob is immediately preserved in browser `IndexedDB`. If your Wi-Fi drops, the phone runs out of battery, or the browser closes, **the local video is never lost**.
 >
-> You can also manually tap **RETRY UPLOAD** at any time. Local files are purged **strictly after** the backend returns cryptographic proof of remote persistence.
+> When you reopen the terminal, simply tap **RETRY UPLOAD**. The local file is purged **strictly after** the backend returns cryptographic proof (`status: "verified"`) of remote persistence on Hugging Face.

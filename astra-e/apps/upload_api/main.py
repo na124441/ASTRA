@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .audit_logger import CollectorAuditLogger
 from .hf_uploader import HuggingFaceDatasetUploader
@@ -27,6 +30,8 @@ from .service import CollectorService
 from .storage import ChunkStorageManager
 
 logger = logging.getLogger("astra.collector.api")
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # Singleton service instance
 _service: CollectorService | None = None
@@ -59,6 +64,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/")
+@app.get("/collector")
+def get_collector_webapp() -> FileResponse:
+    """Serve the ASTRA Collector mobile web application."""
+    index_file = STATIC_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(status_code=404, detail="Web application static files not found.")
+    return FileResponse(str(index_file))
+
 
 
 # -----------------------------------------------------------------------------
