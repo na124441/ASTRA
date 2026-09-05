@@ -45,34 +45,75 @@ IDX_TO_VERB = {i: v for i, v in enumerate(VERB_VOCAB)}
 IDX_TO_OBJECT = {i: o for i, o in enumerate(OBJECT_VOCAB)}
 IDX_TO_TARGET = {i: t for i, t in enumerate(TARGET_VOCAB)}
 
+# Ground-truth procedural violation categories (evaluation benchmark only, not LSTM heads)
+VIOLATION_VOCAB = [
+    "NONE",
+    "WRONG_OBJECT",
+    "WRONG_TARGET",
+    "SKIPPED_STEP",
+    "REPEATED_STEP",
+    "PREMATURE_CLOSE",
+    "OUT_OF_SEQUENCE",
+    "AMBIGUOUS",
+]
+
+LABEL_QUALITY_VOCAB = [
+    "verified",
+    "reviewed",
+    "synthetic",
+    "ambiguous",
+]
+
 
 class ActionSegmentAnnotation(BaseModel):
-    """Ground-truth temporal action interval."""
+    """
+    Ground-truth temporal action interval and procedural evaluation metadata.
+    Used for multi-head action supervision, temporal boundary detection, and confirmation benchmarking.
+    """
     model_config = ConfigDict(frozen=True)
 
+    segment_id: str | None = Field(default=None, description="Unique segment identifier within video")
+    start_frame: int = Field(default=0, description="Inclusive start frame index (0-indexed)")
+    end_frame: int = Field(default=0, description="Inclusive end frame index")
     start_time: float = Field(description="Start time in seconds")
     end_time: float = Field(description="End time in seconds")
-    verb: str = Field(description="Action verb")
-    object: str | None = Field(default=None, description="Interacted object")
-    target: str | None = Field(default=None, description="Target receptacle")
-    quality: str = Field(default="verified", description="Annotation quality: verified, reviewed, synthetic")
-    source: str = Field(default="synthetic", description="Label source: human, model, synthetic")
+    verb: str = Field(description="Action verb from VERB_VOCAB")
+    object: str | None = Field(default=None, description="Interacted object from OBJECT_VOCAB")
+    target: str | None = Field(default=None, description="Target receptacle from TARGET_VOCAB")
+    violation_type: str = Field(
+        default="NONE",
+        description="Ground-truth procedure violation category (for confirmation/procedure evaluation, NOT an LSTM class)",
+    )
+    label_quality: str = Field(
+        default="verified",
+        description="Annotation quality status: verified, reviewed, synthetic, ambiguous",
+    )
+    source: str = Field(default="human", description="Label source: human, model, synthetic")
+    notes: str | None = Field(default=None, description="Optional annotator notes or rationale")
 
 
 class RecordingMetadata(BaseModel):
-    """Provenance metadata for an individual experiment recording."""
+    """
+    Comprehensive provenance metadata for an individual experiment recording (video or synthetic).
+    """
     model_config = ConfigDict(frozen=True)
 
-    recording_id: str
-    experiment_id: str
-    run_id: str
-    duration_seconds: float
-    fps: float = 30.0
-    width: int = 640
-    height: int = 480
-    scenario_type: str = "nominal"  # nominal, wrong_object, wrong_target, hesitation, dropout
-    random_seed: int = 42
-    segments: list[ActionSegmentAnnotation] = Field(default_factory=list)
+    video_id: str = Field(default="", description="Unique video clip identifier, e.g. EXP001_RUN_001_CAM01")
+    recording_id: str = Field(description="Recording identifier or run tag")
+    experiment_id: str = Field(default="EXP001", description="Experiment procedure ID")
+    run_id: str = Field(description="Associated run ID, e.g. RUN-0001")
+    subject_id: str = Field(default="ASTRONAUT-01", description="Astronaut / human subject identifier")
+    camera_id: str = Field(default="CAM-01", description="Camera identifier, e.g. CAM-01")
+    duration_seconds: float = Field(description="Duration in seconds")
+    total_frames: int = Field(default=0, description="Total frames in video clip")
+    fps: float = Field(default=30.0, description="Capture frame rate")
+    width: int = Field(default=640, description="Frame width in pixels")
+    height: int = Field(default=480, description="Frame height in pixels")
+    scenario_type: str = Field(default="nominal", description="nominal, wrong_object, wrong_target, skipped_step, repeated_step, hesitation, dropout")
+    annotator_id: str | None = Field(default="SYSTEM", description="Annotator identifier or system tag")
+    random_seed: int = Field(default=42, description="Random seed")
+    created_at: float = Field(default_factory=time.time, description="Timestamp of recording/annotation creation")
+    segments: list[ActionSegmentAnnotation] = Field(default_factory=list, description="Ordered ground-truth action segments")
 
 
 class DatasetManifest(BaseModel):
