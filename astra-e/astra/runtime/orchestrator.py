@@ -316,13 +316,19 @@ class EdgeRuntimeOrchestrator:
 
     def get_telemetry(self) -> dict[str, Any]:
         """Compile comprehensive system telemetry packet for UI dashboards."""
-        engine_state = self.procedure_engine.state if self.procedure_engine else None
+        engine_state = None
+        if self.procedure_engine and getattr(self.procedure_engine, "state_manager", None) is not None:
+            try:
+                engine_state = self.procedure_engine.state
+            except RuntimeError:
+                engine_state = None
+
         next_steps = engine_state.next_expected if engine_state else []
         current_step_id = engine_state.current_step if engine_state else None
 
         # Resolve next step description
         next_step_desc = None
-        if next_steps and self.procedure:
+        if next_steps and self.procedure and getattr(self.procedure_engine, "graph", None) is not None:
             s_obj = self.procedure_engine.graph.get_step(next_steps[0])
             if s_obj:
                 next_step_desc = s_obj.description
@@ -352,6 +358,7 @@ class EdgeRuntimeOrchestrator:
 
         # Recent assistance
         latest_assist = self.assistance_manager.history[-1].message if self.assistance_manager.history else None
+        is_completed = self.procedure_engine.is_completed if (self.procedure_engine and getattr(self.procedure_engine, "state_manager", None) is not None) else False
 
         return {
             "system": "ASTRA-E",
@@ -367,7 +374,7 @@ class EdgeRuntimeOrchestrator:
                 "next_expected": next_steps,
                 "next_step_description": next_step_desc,
                 "progress_percent": progress_pct,
-                "completed": self.procedure_engine.is_completed,
+                "completed": is_completed,
             },
             "latest_action": {
                 "action": self._latest_confirmed_action.action if self._latest_confirmed_action else None,

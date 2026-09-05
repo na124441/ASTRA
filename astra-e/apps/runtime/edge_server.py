@@ -37,6 +37,9 @@ def main() -> None:
     parser.add_argument("--mock-tts", action="store_true", help="Use silent mock TTS for testing")
     parser.add_argument("--fps", type=float, default=30.0, help="Target capture and loop FPS")
 
+    parser.add_argument("--auto-start", action="store_true", default=True, help="Automatically launch EXP001 on server boot")
+    parser.add_argument("--no-auto-start", action="store_false", dest="auto_start", help="Wait for manual start from dashboard")
+
     args = parser.parse_args()
 
     # Configure Camera Source
@@ -58,6 +61,10 @@ def main() -> None:
         tts_enabled=not args.no_tts,
         mock_tts=args.mock_tts,
     )
+    if args.auto_start:
+        orchestrator.start_experiment(experiment_id="EXP001")
+        logger.info("Auto-started default procedure: EXP001")
+
     set_orchestrator(orchestrator)
 
     print("\n" + "=" * 68)
