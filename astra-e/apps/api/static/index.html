@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASTRA-E | BAS Astronaut HUD Dashboard</title>
+  <style>
+    :root {
+      --bg-dark: #0a0d14;
+      --card-bg: #121824;
+      --accent: #00d2ff;
+      --accent-glow: rgba(0, 210, 255, 0.3);
+      --success: #00ff88;
+      --warning: #ffb800;
+      --danger: #ff3366;
+      --text-main: #e2e8f0;
+      --text-dim: #94a3b8;
+      --border: #1e293b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
+    body { background: var(--bg-dark); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: #070a0f; border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.25rem; letter-spacing: 1.5px; color: var(--accent); }
+    .badge { padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .badge-running { background: rgba(0, 255, 136, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-idle { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); border: 1px solid var(--text-dim); }
+    .badge-paused { background: rgba(255, 184, 0, 0.15); color: var(--warning); border: 1px solid var(--warning); }
+    .badge-completed { background: rgba(0, 210, 255, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+    
+    .grid-container { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; padding: 20px; flex: 1; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .card-header { padding: 12px 16px; background: rgba(255, 255, 255, 0.02); border-bottom: 1px solid var(--border); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; }
+    
+    .video-viewport { position: relative; background: #000; display: flex; justify-content: center; align-items: center; min-height: 380px; }
+    .video-viewport img { width: 100%; height: auto; max-height: 520px; object-fit: contain; }
+    
+    .banner-alert { display: none; background: rgba(255, 51, 102, 0.2); border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-weight: 600; font-size: 0.95rem; }
+    
+    .step-list { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+    .step-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #0c121d; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
+    .step-item.active { border-color: var(--accent); background: rgba(0, 210, 255, 0.08); box-shadow: 0 0 10px var(--accent-glow); font-weight: 600; color: #fff; }
+    .step-item.done { border-color: var(--success); opacity: 0.7; }
+    .step-item.done .step-num { background: var(--success); color: #000; }
+    .step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+    .step-item.active .step-num { background: var(--accent); color: #000; }
+    
+    .meter-container { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .meter-label { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; color: var(--text-dim); }
+    .meter-bar { height: 8px; background: #070a0f; border-radius: 4px; overflow: hidden; }
+    .meter-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s ease; }
+    
+    .controls { padding: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+    button { background: #1e293b; color: var(--text-main); border: 1px solid #334155; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; font-size: 0.85rem; }
+    button:hover { background: #334155; }
+    button.btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    button.btn-primary:hover { background: #38bdf8; }
+    button.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <span>🚀</span>
+      <span>ASTRA-E // BHARTIYA ANTARIKSH STATION</span>
+    </div>
+    <div style="display: flex; gap: 16px; align-items: center;">
+      <span id="fpsTag" style="font-size: 0.85rem; color: var(--text-dim);">FPS: --</span>
+      <span id="statusBadge" class="badge badge-idle">STANDBY</span>
+    </div>
+  </header>
+
+  <div class="grid-container">
+    <!-- Left Column: Video Feed & Action HUD -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div class="card">
+        <div class="card-header">
+          <span>Camera Payload Ingestion (CAM-01)</span>
+          <span id="runIdTag" style="color: var(--accent);">RUN: NONE</span>
+        </div>
+        <div class="video-viewport">
+          <img id="mjpegFeed" src="/api/v1/video/stream" alt="Live Camera Stream">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span>Temporal Recognition & Confirmation</span>
+          <span id="confTag">CONFIDENCE: --</span>
+        </div>
+        <div class="meter-container">
+          <div>
+            <div class="meter-label">
+              <span>Predicted Interaction:</span>
+              <strong id="actionTag" style="color: var(--accent);">IDLE</strong>
+            </div>
+            <div class="meter-bar">
+              <div id="confFill" class="meter-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+          <div>
+            <div class="meter-label">
+              <span>Procedure Execution Progress:</span>
+              <span id="progressPct">0%</span>
+            </div>
+            <div class="meter-bar">
+              <div id="progressFill" class="meter-fill" style="background: var(--success); width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Procedure Steps & Astronaut Guidance -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div id="violationBanner" class="banner-alert">
+        ⚠️ <span id="violationText">PROCEDURE VIOLATION DETECTED</span>
+      </div>
+
+      <div class="card" style="flex: 1;">
+        <div class="card-header">
+          <span>Experiment Procedure Sequence</span>
+          <span id="expTag" style="color: var(--text-dim);">EXP001</span>
+        </div>
+        <div class="step-list" id="stepList">
+          <div class="step-item" id="step-S01">
+            <span class="step-num">1</span>
+            <span>S01: Open experiment container</span>
+          </div>
+          <div class="step-item" id="step-S02">
+            <span class="step-num">2</span>
+            <span>S02: Pick red component from container</span>
+          </div>
+          <div class="step-item" id="step-S03">
+            <span class="step-num">3</span>
+            <span>S03: Place red component into Target A</span>
+          </div>
+          <div class="step-item" id="step-S04">
+            <span class="step-num">4</span>
+            <span>S04: Pick yellow component from container</span>
+          </div>
+          <div class="step-item" id="step-S05">
+            <span class="step-num">5</span>
+            <span>S05: Place yellow component into Target B</span>
+          </div>
+          <div class="step-item" id="step-S06">
+            <span class="step-num">6</span>
+            <span>S06: Close experiment container</span>
+          </div>
+        </div>
+
+        <div style="padding: 16px; border-top: 1px solid var(--border); background: #070a0f;">
+          <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">Auditory Guidance:</div>
+          <div id="guidanceText" style="font-size: 0.95rem; color: #fff; font-weight: 500;">Awaiting experiment initialization...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span>Edge Control Panel</span>
+        </div>
+        <div class="controls">
+          <button class="btn-primary" onclick="startRun()">▶ Start Run</button>
+          <button onclick="pauseRun()">⏸ Pause / Resume</button>
+          <button class="btn-danger" onclick="resetRun()">⏹ Reset</button>
+          <button onclick="testVoice()">🔊 Test Voice</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isPaused = false;
+
+    // WebSocket Telemetry Connection
+    function connectTelemetry() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          updateUI(data);
+        } catch (e) {
+          console.error("Telemetry parse error", e);
+        }
+      };
+
+      ws.onclose = () => {
+        setTimeout(connectTelemetry, 1500);
+      };
+    }
+
+    function updateUI(data) {
+      // FPS & Status
+      document.getElementById('fpsTag').innerText = `FPS: ${data.fps || '--'}`;
+      const badge = document.getElementById('statusBadge');
+      badge.innerText = data.status || 'STANDBY';
+      badge.className = `badge badge-${(data.status || 'idle').toLowerCase()}`;
+
+      // Run ID
+      document.getElementById('runIdTag').innerText = data.run_id ? `RUN: ${data.run_id}` : 'RUN: NONE';
+
+      // Latest Action & Confidence
+      const act = data.latest_action || {};
+      const actLabel = act.action ? `${act.action} ${act.object_id || ''} ${act.target_id ? '-> ' + act.target_id : ''}` : 'IDLE';
+      document.getElementById('actionTag').innerText = actLabel;
+      
+      const confVal = act.confidence ? Math.round(act.confidence * 100) : 0;
+      document.getElementById('confTag').innerText = `CONFIDENCE: ${confVal}%`;
+      document.getElementById('confFill').style.width = `${confVal}%`;
+
+      // Progress
+      const proc = data.procedure || {};
+      const pct = proc.progress_percent || 0;
+      document.getElementById('progressPct').innerText = `${pct}%`;
+      document.getElementById('progressFill').style.width = `${pct}%`;
+
+      // Guidance
+      if (data.latest_guidance) {
+        document.getElementById('guidanceText').innerText = data.latest_guidance;
+      }
+
+      // Step Highlights
+      const currentStep = proc.current_step;
+      const stepElements = document.querySelectorAll('.step-item');
+      stepElements.forEach(el => {
+        const sid = el.id.replace('step-', '');
+        if (sid === currentStep) {
+          el.className = 'step-item active';
+        } else if (proc.completed) {
+          el.className = 'step-item done';
+        }
+      });
+    }
+
+    async function startRun() {
+      await fetch('/api/v1/experiment/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ experiment_id: 'EXP001' })
+      });
+    }
+
+    async function pauseRun() {
+      isPaused = !isPaused;
+      const endpoint = isPaused ? '/api/v1/experiment/pause' : '/api/v1/experiment/resume';
+      await fetch(endpoint, { method: 'POST' });
+    }
+
+    async function resetRun() {
+      await fetch('/api/v1/experiment/reset', { method: 'POST' });
+    }
+
+    async function testVoice() {
+      await fetch('/api/v1/assistance/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'ASTRA-E audio assistance operational.' })
+      });
+    }
+
+    window.onload = connectTelemetry;
+  </script>
+</body>
+</html>
