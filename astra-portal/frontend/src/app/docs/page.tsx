@@ -7,7 +7,12 @@
 
 import { CodeBlock } from '@/components/code-block';
 import { BookOpen, Terminal, CheckCircle2, ShieldAlert } from 'lucide-react';
-
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 export default function DocsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-16">
@@ -65,8 +70,8 @@ pip install onnxruntime opencv-python-headless numpy requests`}
         <CodeBlock
           title="Step 2: Fetch ONNX Checkpoint"
           powershellCode={`# Download weights using PowerShell
-Invoke-WebRequest -Uri "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx" -OutFile "exp001-int8.onnx"`
-          bashCode={`# Download weights using curl
+Invoke-WebRequest -Uri "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx" -OutFile "exp001-int8.onnx"`}
+bashCode={`# Download weights using curl
 curl -L -o exp001-int8.onnx "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx"`}
         />
       </section>
@@ -95,6 +100,7 @@ python3 infer.py --model exp001-int8.onnx --camera 0 --protocol EXP001
 python3 infer.py --model exp001-int8.onnx --video sample_run.mp4`}
         />
       </section>
+    
 
       {/* Troubleshooting Section */}
       <section className="p-6 rounded-2xl border border-space-border bg-space-card/30 mt-8">
@@ -108,6 +114,57 @@ python3 infer.py --model exp001-int8.onnx --video sample_run.mp4`}
           <li>• <strong className="text-white">Checksum Discrepancy:</strong> Verify your file SHA-256 against our official release table on the Downloads page.</li>
         </ul>
       </section>
+      {/* FAQ Section */}
+<section className="mt-12">
+  <h2 className="text-xl font-bold text-white mb-6">
+    Frequently Asked Questions
+  </h2>
+
+  <Accordion type="single" collapsible className="w-full">
+    <AccordionItem value="camera">
+      <AccordionTrigger className="text-sm text-white">
+        What should I do if I get a camera permission error?
+      </AccordionTrigger>
+      <AccordionContent className="text-xs text-text-secondary">
+        Make sure your webcam is connected and no other application such as
+        Zoom, Teams, or Chrome is currently using it. On Windows, also check
+        Camera Privacy settings and allow access to desktop applications.
+      </AccordionContent>
+    </AccordionItem>
+
+    <AccordionItem value="gpu">
+      <AccordionTrigger className="text-sm text-white">
+        How can I fix a GPU Out of Memory error?
+      </AccordionTrigger>
+      <AccordionContent className="text-xs text-text-secondary">
+        Try using the INT8 quantized model, reduce the input resolution, or
+        close other GPU-intensive applications. If GPU inference is not
+        required, use CPU inference instead.
+      </AccordionContent>
+    </AccordionItem>
+
+    <AccordionItem value="checksum">
+      <AccordionTrigger className="text-sm text-white">
+        What does a checksum mismatch mean?
+      </AccordionTrigger>
+      <AccordionContent className="text-xs text-text-secondary">
+        The downloaded model may be incomplete or corrupted. Re-download the
+        model and compare its SHA-256 hash with the official checksum shown on
+        the Downloads page.
+      </AccordionContent>
+    </AccordionItem>
+
+    <AccordionItem value="python">
+      <AccordionTrigger className="text-sm text-white">
+        What should I do if I encounter a Python dependency error?
+      </AccordionTrigger>
+      <AccordionContent className="text-xs text-text-secondary">
+        Make sure the astra-env virtual environment is activated and install
+        all required dependencies using the commands provided in Step 1.
+      </AccordionContent>
+    </AccordionItem>
+  </Accordion>
+</section>
     </div>
   );
 }

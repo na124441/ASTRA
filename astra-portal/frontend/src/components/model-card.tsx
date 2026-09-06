@@ -90,7 +90,7 @@ export function ModelCard({ model }: ModelCardProps) {
           className="w-full flex items-center justify-center gap-2 rounded-xl bg-cyan-accent/10 border border-cyan-accent py-2.5 text-xs font-mono font-bold text-cyan-accent hover:bg-cyan-accent hover:text-space-bg transition-all shadow-[0_0_12px_rgba(0,229,255,0.2)]"
         >
           <Download className="h-4 w-4" />
-          <span>DOWNLOAD WEIGHTS (.onnx)</span>
+          <span>DOWNLOAD {model.format}</span>
         </a>
       </div>
     </div>
