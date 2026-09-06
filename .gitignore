@@ -20,3 +20,10 @@ yarn-error.log*
 *.local
 .env
 .env.local
+
+# ML Checkpoints & Outputs
+*.pt
+*.pth
+*.onnx
+*.bin
+outputs/
