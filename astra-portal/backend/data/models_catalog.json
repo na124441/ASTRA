@@ -1,0 +1,32 @@
+{
+  "models": [
+    {
+      "id": "astra-exp001-int8",
+      "title": "ASTRA EXP001 Fast Action Recognizer",
+      "description": "Quantized 8-bit model optimized for edge devices, Raspberry Pi 4, and low-power space station hardware.",
+      "format": "ONNX (INT8)",
+      "precision": "INT8",
+      "size_mb": 142.5,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target_device": "Edge / Jetson Nano / Intel Core i5",
+      "download_url": "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx",
+      "recommended": true,
+      "version": "v1.0.0",
+      "created_at": "2026-09-05"
+    },
+    {
+      "id": "astra-exp001-fp16",
+      "title": "ASTRA EXP001 High-Precision Spatial Model",
+      "description": "Full precision model for multi-camera 3D triangulation and complex zero-g procedure verification.",
+      "format": "PyTorch (.pt)",
+      "precision": "FP16",
+      "size_mb": 512.0,
+      "sha256": "9b7d8a9f24c3e8e19b62a5b1d44c82b0e77d91e1d743a129683b542e0f84693a",
+      "target_device": "NVIDIA RTX 3060+ / Cloud GPU",
+      "download_url": "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-fp16.pt",
+      "recommended": false,
+      "version": "v1.0.0",
+      "created_at": "2026-09-05"
+    }
+  ]
+}
