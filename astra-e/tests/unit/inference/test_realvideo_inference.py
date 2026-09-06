@@ -30,7 +30,9 @@ from astra.inference.realvideo import (
     ACTIONS,
     ASTRARealVideoModel,
     ASTRARealVideoNet,
+    predict_video,
     sample_frame_indices,
+    verify_checkpoint,
 )
 
 
@@ -182,3 +184,29 @@ class TestRealVideoInference:
         with pytest.raises(ValueError) as exc_corrupt:
             model.predict(corrupt_file)
         assert "corrupt" in str(exc_corrupt.value).lower()
+
+    def test_predict_video_contract(self):
+        """Test Phase 9: Verify predict_video programmatic API contract."""
+        ckpt_path = Path("models/realvideo/astra_realvideo_lstm_best.pt")
+        if not ckpt_path.exists():
+            ckpt_path = Path("astra-e/models/realvideo/astra_realvideo_lstm_best.pt")
+
+        sample_vid = Path("astra-e/data/cloud/smoke_test/EXP001_SMOKE_CAM01.mp4")
+        if not sample_vid.exists():
+            sample_vid = Path("data/cloud/smoke_test/EXP001_SMOKE_CAM01.mp4")
+
+        result = predict_video(video_path=sample_vid, model_path=ckpt_path, top_k=3)
+        assert "prediction" in result
+        assert result["prediction"] in ACTIONS
+        assert "class_index" in result
+        assert 0 <= result["class_index"] < 6
+        assert "confidence" in result
+        assert 0.0 <= result["confidence"] <= 1.0
+        assert "top_predictions" in result
+        assert len(result["top_predictions"]) == 3
+        assert "latency_ms" in result
+        assert result["latency_ms"] > 0
+        assert result["frames"] == 16
+
+        # Also verify verify_checkpoint returns True
+        assert verify_checkpoint(ckpt_path) is True

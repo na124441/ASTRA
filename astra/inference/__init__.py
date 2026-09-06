@@ -7,14 +7,18 @@ if TYPE_CHECKING:
         ACTIONS,
         ASTRARealVideoModel,
         ASTRARealVideoNet,
+        predict_video,
         sample_frame_indices,
+        verify_checkpoint,
     )
 
 __all__ = [
     "ACTIONS",
     "ASTRARealVideoModel",
     "ASTRARealVideoNet",
+    "predict_video",
     "sample_frame_indices",
+    "verify_checkpoint",
 ]
 
 

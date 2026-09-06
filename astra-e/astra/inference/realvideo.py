@@ -215,8 +215,8 @@ class ASTRARealVideoModel:
             found = None
             if self.checkpoint_path.name == "astra_realvideo_lstm_best.pt":
                 alt_candidates = [
-                    Path("models/realvideo/astra_realvideo_lstm_best.pt"),
                     Path("astra-e/models/realvideo/astra_realvideo_lstm_best.pt"),
+                    Path("models/realvideo/astra_realvideo_lstm_best.pt"),
                     current_dir.parent.parent / "models/realvideo/astra_realvideo_lstm_best.pt",
                     current_dir.parent.parent.parent / "models/realvideo/astra_realvideo_lstm_best.pt",
                 ]
@@ -345,10 +345,12 @@ class ASTRARealVideoModel:
             top_k: Number of top predictions to include in result (default: 3).
         Returns:
             Dictionary containing:
-                - action: Top predicted action name (str)
+                - action / prediction: Top predicted action name (str)
+                - class_index: Integer index in [0..5] (int)
                 - confidence: Softmax probability in [0.0, 1.0] (float)
-                - top_k: List of top-k dictionaries [{"action": str, "confidence": float}, ...]
+                - top_k / top_predictions: List of top-k dictionaries
                 - latency_ms: Execution latency of the neural pipeline in milliseconds (float)
+                - frames: Number of frames processed (16)
         """
         raw_frames = self.load_video_frames(video_path, target_frames=16)
         return self.predict_frames(raw_frames, top_k=top_k)
@@ -414,14 +416,19 @@ class ASTRARealVideoModel:
                 "confidence": round(conf, 4),
             })
 
+        best_idx = int(top_indices[0])
         best_action = top_predictions[0]["action"]
         best_conf = top_predictions[0]["confidence"]
 
         return {
+            "prediction": best_action,
             "action": best_action,
+            "class_index": best_idx,
             "confidence": best_conf,
+            "top_predictions": top_predictions,
             "top_k": top_predictions,
             "latency_ms": round(latency_ms, 2),
+            "frames": 16,
         }
 
     def process_frame(self, frame: np.ndarray, top_k: int = 3) -> dict[str, Any] | None:
@@ -434,6 +441,110 @@ class ASTRARealVideoModel:
         if len(self._stream_buffer) == 16:
             return self.predict_frames(list(self._stream_buffer), top_k=top_k)
         return None
+
+
+def predict_video(
+    video_path: str | Path,
+    model_path: str | Path = "models/realvideo/astra_realvideo_lstm_best.pt",
+    top_k: int = 3,
+    device: str | torch.device | None = None,
+) -> dict[str, Any]:
+    """
+    Clean programmatic API function for real-video inference (Phase 9 Contract).
+    Usage:
+        result = predict_video(video_path="sample.avi", model_path="model.pt", top_k=3)
+    Returns:
+        {
+            "prediction": "brush_hair",
+            "action": "brush_hair",
+            "class_index": 0,
+            "confidence": 0.93,
+            "top_predictions": [...],
+            "top_k": [...],
+            "latency_ms": ...,
+            "frames": 16
+        }
+    """
+    model = ASTRARealVideoModel(checkpoint_path=model_path, device=device)
+    return model.predict(video_path=video_path, top_k=top_k)
+
+
+def verify_checkpoint(checkpoint_path: str | Path = "models/realvideo/astra_realvideo_lstm_best.pt") -> bool:
+    """
+    Verifies checkpoint structure and validity, outputting Phase 5 banner.
+    """
+    ckpt_p = Path(checkpoint_path)
+    if not ckpt_p.exists():
+        for cand in [
+            Path("astra-e/models/realvideo/astra_realvideo_lstm_best.pt"),
+            current_dir.parent.parent / "models/realvideo/astra_realvideo_lstm_best.pt",
+        ]:
+            if cand.resolve().exists():
+                ckpt_p = cand.resolve()
+                break
+
+    print("=" * 60)
+    print("ASTRA-E CHECKPOINT VERIFICATION")
+    print("=" * 60)
+    print()
+    print("Checkpoint:")
+    print(f"  {ckpt_p}")
+    print()
+
+    if not ckpt_p.exists():
+        print("Checkpoint size:")
+        print("  FILE NOT FOUND")
+        print()
+        print("Checkpoint load:")
+        print("  FAIL (file does not exist)")
+        print()
+        print("=" * 60)
+        return False
+
+    size_bytes = ckpt_p.stat().st_size
+    print("Checkpoint size:")
+    print(f"  {size_bytes:,} bytes ({size_bytes / (1024 * 1024):.2f} MB)")
+    print()
+    print("Architecture:")
+    print("  MobileNetV3-Small -> 576-D -> 2-layer LSTM(128) -> 6 classes")
+    print()
+    print("Classes:")
+    for idx, name in enumerate(ACTIONS):
+        print(f"  {idx} {name}")
+    print()
+
+    try:
+        raw_ckpt = torch.load(ckpt_p, map_location="cpu")
+        print("Checkpoint load:")
+        print("  PASS")
+    except Exception as e:
+        print("Checkpoint load:")
+        print(f"  FAIL ({e})")
+        print("=" * 60)
+        return False
+
+    # State dict verification
+    try:
+        sd = raw_ckpt.get("model_state_dict", raw_ckpt) if isinstance(raw_ckpt, dict) else raw_ckpt.state_dict()
+        classifier_key = next((k for k in sd if "classifier.weight" in k or "fc.weight" in k), None)
+        assert classifier_key is not None, "Missing classifier weight"
+        assert sd[classifier_key].shape[0] == 6, f"Expected 6 classes, got {sd[classifier_key].shape[0]}"
+        lstm_key = next((k for k in sd if "lstm.weight_ih_l0" in k), None)
+        assert lstm_key is not None, "Missing LSTM weight"
+        assert sd[lstm_key].shape == (512, 576), f"Expected (512, 576), got {sd[lstm_key].shape}"
+        print()
+        print("State dict validation:")
+        print("  PASS")
+        print()
+        print("=" * 60)
+        return True
+    except Exception as e:
+        print()
+        print("State dict validation:")
+        print(f"  FAIL ({e})")
+        print()
+        print("=" * 60)
+        return False
 
 
 def format_cli_banner(
@@ -492,7 +603,7 @@ def main() -> int:
     parser.add_argument(
         "--video",
         type=str,
-        required=True,
+        default=None,
         help="Path to video file (.avi, .mp4, .mov, .mkv, .webm)",
     )
     parser.add_argument(
@@ -508,8 +619,20 @@ def main() -> int:
         default=3,
         help="Number of top predictions to display (default: 3)",
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run checkpoint structure and weight verification only",
+    )
 
     args = parser.parse_args()
+
+    if args.verify:
+        ok = verify_checkpoint(args.model)
+        return 0 if ok else 1
+
+    if not args.video:
+        parser.error("--video is required unless --verify is specified")
 
     try:
         model = ASTRARealVideoModel(checkpoint_path=args.model, device=args.device)
