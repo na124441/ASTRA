@@ -17,6 +17,8 @@ from api.downloads import router as downloads_router
 from api.checksum import router as checksum_router
 from api.inference import router as inference_router
 from api.telemetry import router as telemetry_router
+from api.demo_inference import router as demo_inference_router
+from api.health import router as health_router
 
 app = FastAPI(
     title="ASTRA-E Portal API",
@@ -37,11 +39,13 @@ app.add_middleware(
 app.include_router(models_router)
 app.include_router(downloads_router)
 app.include_router(checksum_router)
-app.include_router(inference_router)
+app.include_router(demo_inference_router)
 app.include_router(telemetry_router)
+app.include_router(health_router)
 
 
 @app.get("/health")
 def health_check():
     """Root health check endpoint."""
     return {"status": "healthy", "service": "ASTRA-E Portal API"}
+

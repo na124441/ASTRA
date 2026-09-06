@@ -6,7 +6,7 @@
  * ============================================================================
  */
 
-import { Camera, Cpu, AlertTriangle, CloudCheck } from 'lucide-react';
+import { Camera, Cpu, AlertTriangle, CloudUpload } from 'lucide-react';
 
 const PIPELINE_STAGES = [
   {
@@ -41,7 +41,7 @@ const PIPELINE_STAGES = [
     title: 'Audited Telemetry Sync',
     subtitle: 'Hugging Face Private Repository',
     desc: 'Immutable SHA-256 validated chunked uploads to ground station dataset repository for post-mission flight reviews.',
-    icon: CloudCheck,
+    icon: CloudUpload,
     color: 'text-cyan-accent',
     border: 'border-cyan-dim/40',
   },

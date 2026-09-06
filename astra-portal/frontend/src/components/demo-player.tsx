@@ -1,11 +1,8 @@
 /**
  * ============================================================================
- * OWNER: Frontend Developer 1
+ * OWNER: Frontend Developer 1 & Backend Developer 2
  * PURPOSE: Interactive Web Demo Video Player & Action Classification HUD.
- *
- * HOW TO EDIT:
- * 1. Wire the "Run Inference" button to Backend 2's `/api/v1/demo/inference`.
- * 2. Add video file upload dropzone.
+ *          Uses Next.js Server Action (`runInferenceAction`) to proxy inference requests.
  * ============================================================================
  */
 
@@ -14,6 +11,7 @@
 import { useState } from 'react';
 import { Play, CheckCircle2, AlertCircle, RefreshCw, Cpu } from 'lucide-react';
 import { InferenceResult } from '@/lib/types';
+import { runInferenceAction } from '@/app/actions';
 
 const SAMPLE_CLIPS = [
   {
@@ -35,65 +33,36 @@ export function DemoPlayer() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<InferenceResult | null>({
     step_id: 3,
-    action_name: 'Transfer Reagent to Well A1 via Calibrated Pipette',
+    action_name: 'Place Red Vial in Slot A',
     status: 'NOMINAL',
-    confidence: 0.962,
-    inference_ms: 114,
+    confidence: 0.942,
+    inference_ms: 118,
     anomaly_detected: false,
     timestamp: '2026-09-06T10:15:00Z',
   });
 
-  const runDemoInference = async () => {
+  const handleRunInference = async () => {
     setLoading(true);
-    // Simulate backend call or hit live API if running
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/demo/inference', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clip_id: selectedClip }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setResult(data);
-      } else {
-        // Fallback simulation for offline testing
-        setTimeout(() => {
-          const isFault = selectedClip === 'sample-02';
-          setResult({
-            step_id: isFault ? 4 : 3,
-            action_name: isFault
-              ? 'FAULT DETECTED: Gasket Seal Misaligned'
-              : 'Transfer Reagent to Well A1 via Calibrated Pipette',
-            status: isFault ? 'FAULT' : 'NOMINAL',
-            confidence: isFault ? 0.941 : 0.962,
-            inference_ms: 122,
-            anomaly_detected: isFault,
-            timestamp: new Date().toISOString(),
-          });
-          setLoading(false);
-        }, 600);
-        return;
-      }
+      const data = await runInferenceAction(selectedClip);
+      setResult(data);
     } catch {
-      // Offline fallback
-      setTimeout(() => {
-        const isFault = selectedClip === 'sample-02';
-        setResult({
-          step_id: isFault ? 4 : 3,
-          action_name: isFault
-            ? 'FAULT DETECTED: Gasket Seal Misaligned'
-            : 'Transfer Reagent to Well A1 via Calibrated Pipette',
-          status: isFault ? 'FAULT' : 'NOMINAL',
-          confidence: isFault ? 0.941 : 0.962,
-          inference_ms: 122,
-          anomaly_detected: isFault,
-          timestamp: new Date().toISOString(),
-        });
-        setLoading(false);
-      }, 500);
-      return;
+      // Fallback response if Server Action encounters an issue
+      const isFault = selectedClip === 'sample-02';
+      setResult({
+        step_id: isFault ? 4 : 3,
+        action_name: isFault
+          ? 'FAULT DETECTED: Gasket Seal Misaligned on Chamber B'
+          : 'Place Red Vial in Slot A',
+        status: isFault ? 'FAULT' : 'NOMINAL',
+        confidence: 0.942,
+        inference_ms: 118,
+        anomaly_detected: isFault,
+        timestamp: new Date().toISOString(),
+      });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -135,7 +104,7 @@ export function DemoPlayer() {
           ))}
 
           <button
-            onClick={runDemoInference}
+            onClick={handleRunInference}
             disabled={loading}
             className="ml-auto flex items-center gap-2 rounded-xl bg-cyan-accent px-5 py-2 text-xs font-mono font-bold text-space-bg hover:bg-cyan-accent/90 disabled:opacity-50 transition-all shadow-[0_0_15px_rgba(0,229,255,0.3)]"
           >
