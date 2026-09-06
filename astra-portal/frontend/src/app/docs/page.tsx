@@ -65,7 +65,7 @@ pip install onnxruntime opencv-python-headless numpy requests`}
         <CodeBlock
           title="Step 2: Fetch ONNX Checkpoint"
           powershellCode={`# Download weights using PowerShell
-Invoke-WebRequest -Uri "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx" -OutFile "exp001-int8.onnx"`
+Invoke-WebRequest -Uri "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx" -OutFile "exp001-int8.onnx"`}
           bashCode={`# Download weights using curl
 curl -L -o exp001-int8.onnx "https://huggingface.co/na124441/astra-e-raw/resolve/main/models/exp001-int8.onnx"`}
         />
