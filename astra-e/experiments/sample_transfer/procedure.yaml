@@ -1,0 +1,59 @@
+procedure:
+  id: "PROC-SAMPLE-TRANSFER-01"
+  experiment_id: "EXP001"
+  name: "Sample Transfer & Chamber Enclosure"
+  version: "1.0"
+  objects:
+    - "SAMPLE_CONTAINER"
+    - "CHAMBER"
+    - "WRONG_CONTAINER"
+  targets:
+    - "CHAMBER"
+  initial_step_id: "S01"
+  terminal_step_ids:
+    - "S05"
+  steps:
+    - id: "S01"
+      action: "PICK"
+      object: "SAMPLE_CONTAINER"
+      target: null
+      description: "Pick up the sample container"
+      allowed_next: ["S02"]
+      optional: false
+      repeatable: false
+
+    - id: "S02"
+      action: "MOVE"
+      object: "SAMPLE_CONTAINER"
+      target: "CHAMBER"
+      description: "Move sample container toward chamber"
+      allowed_next: ["S03"]
+      optional: false
+      repeatable: false
+
+    - id: "S03"
+      action: "OPEN"
+      object: "CHAMBER"
+      target: null
+      description: "Open the chamber lid/door"
+      allowed_next: ["S04"]
+      optional: false
+      repeatable: false
+
+    - id: "S04"
+      action: "PLACE"
+      object: "SAMPLE_CONTAINER"
+      target: "CHAMBER"
+      description: "Place the sample container inside the chamber"
+      allowed_next: ["S05"]
+      optional: false
+      repeatable: false
+
+    - id: "S05"
+      action: "CLOSE"
+      object: "CHAMBER"
+      target: null
+      description: "Close the chamber door"
+      allowed_next: []
+      optional: false
+      repeatable: false
